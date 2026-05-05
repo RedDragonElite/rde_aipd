@@ -1,5 +1,5 @@
 # rde_aipd
-🔥 ULTIMATE AI POLICE SYSTEM V1.0 - Built on ox_core &amp; Statebags! 🚨
+🔥 ULTIMATE AI POLICE SYSTEM V1.0.0 - Built on ox_core &amp; Statebags! 🚨
 
 <img width="1024" height="1024" alt="image" src="https://github.com/user-attachments/assets/7f044614-3c38-4b9e-87ce-40013a560b8a" />
 
@@ -8,7 +8,7 @@ https://www.youtube.com/watch?v=mCWg0jZlSbY
 
 # 🐉 rde_aipd
 
-[![Version](https://img.shields.io/badge/version-3.1.0-red?style=for-the-badge)](https://github.com/RedDragonElite/rde_aipd)
+[![Version](https://img.shields.io/badge/version-1.0.0-red?style=for-the-badge)](https://github.com/RedDragonElite/rde_aipd)
 [![License](https://img.shields.io/badge/license-RDE%20Black%20Flag-black?style=for-the-badge)](LICENSE)
 [![FiveM](https://img.shields.io/badge/FiveM-Compatible-blue?style=for-the-badge)](https://fivem.net)
 [![ox_core](https://img.shields.io/badge/Framework-ox__core-blue?style=for-the-badge)](https://github.com/overextended/ox_core)
@@ -350,7 +350,7 @@ Install [rde_nostr_log](https://github.com/RedDragonElite/rde_nostr_log) and ens
 
 ### Jail timer not running after reconnect
 
-Fixed in v3.1.0 — update to the latest version. If you're already on v3.1.0 and still seeing this:
+Fixed in v1.0.0 — update to the latest version. If you're already on v1.0.0 and still seeing this:
 
 1. Confirm `oxmysql` is running and connected
 2. Check that `police_records` table exists in your DB

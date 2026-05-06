@@ -1,5 +1,7 @@
 # rde_aipd
-🔥 ULTIMATE AI POLICE SYSTEM V1.0.0 Alpha - Built on ox_core & Statebags! 🚨
+🔥 ULTIMATE AI POLICE SYSTEM V1.0.0 - Built on ox_core &amp; Statebags! 🚨
+
+<img width="1024" height="1024" alt="image" src="https://github.com/user-attachments/assets/7f044614-3c38-4b9e-87ce-40013a560b8a" />
 
 PREVIEW:
 https://www.youtube.com/watch?v=mCWg0jZlSbY

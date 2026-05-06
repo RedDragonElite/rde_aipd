@@ -14,7 +14,22 @@
 --  ✅ Wanted Level Decay wenn Polizei keine Sichtlinie hat
 --  ✅ Rein ox_core – kein ESX
 --
+-- ✅ FIX #27 (1.0.1-alpha): Locale-Loading via ox_lib (alle Notifications i18n)
+-- ✅ FIX #28 (1.0.1-alpha): Admin-Block respektiert nun Config.AdminSettings.exemptFromWanted
+--                          (vorher: ALLE Crimes für Admins hard-geblockt → kein Zeuge wurde gesucht)
+--
 -- ════════════════════════════════════════════════════════════════════════════════
+
+-- ════════════════════════════════════════════════════════════════════════════════
+-- LOCALE LOADER (FIX #27)
+-- ════════════════════════════════════════════════════════════════════════════════
+local Locale = lib.load('locales.' .. GetConvar('ox:locale', 'en')) or {}
+local function L(key, ...)
+    local s = Locale[key]
+    if not s then return key end
+    if select('#', ...) > 0 then return s:format(...) end
+    return s
+end
 
 local cache = {ped = 0, coords = vector3(0, 0, 0), vehicle = 0, inVehicle = false}
 
@@ -286,7 +301,7 @@ local function Execute911CallSequence(caller, crimeType, crimeCoords, crimeLevel
             TriggerServerEvent('police:crimeDetectedNoWitness', crimeType, crimeCoords)
             lib.notify({
                 type        = 'success',
-                description = '✓ Zeuge ausgeschaltet – kein 911-Call',
+                description = L('witness_killed_before_call'),
                 duration    = 3000,
             })
             return
@@ -317,7 +332,7 @@ local function Execute911CallSequence(caller, crimeType, crimeCoords, crimeLevel
             TriggerServerEvent('police:crimeDetectedNoWitness', crimeType, crimeCoords)
             lib.notify({
                 type        = 'success',
-                description = '✓ Zeuge unterbrochen – Call abgebrochen',
+                description = L('witness_killed_during_call'),
                 duration    = 3000,
             })
             return
@@ -358,8 +373,15 @@ function LogCrime(crimeType, coords, force)
         return false
     end
 
-    if crimeState.isAdmin and not force then
-        Debug(('Admin-Verbrechen unterdrückt: %s'):format(crimeType))
+    -- ✅ FIX #28: Nur blocken wenn Admin TATSÄCHLICH exempt ist (Config-Setting respektieren!)
+    -- Vorher: jeder Admin → ALLE Crimes geblockt → kein Zeuge wurde je gesucht.
+    -- Jetzt: nur wenn Config.AdminSettings.exemptFromWanted = true → blocken.
+    -- Sonst: normaler Crime-Flow (Witness → 911-Call → Wanted Level).
+    if crimeState.isAdmin and not force
+        and Config.AdminSettings
+        and Config.AdminSettings.exemptFromWanted
+    then
+        Debug(('Admin-Verbrechen unterdrückt (exemptFromWanted=true): %s'):format(crimeType))
         return false
     end
 
@@ -420,7 +442,7 @@ function LogCrime(crimeType, coords, force)
 
         lib.notify({
             type        = 'success',
-            description = '✓ Keine Zeugen in der Nähe',
+            description = L('no_witnesses_nearby'),
             duration    = 2500,
         })
         return false
@@ -433,7 +455,7 @@ function LogCrime(crimeType, coords, force)
 
     lib.notify({
         type        = 'warning',
-        description = ('⚠ Zeuge hat dich gesehen! %s'):format(crimeConfig.description or crimeType),
+        description = L('witness_spotted_you', crimeConfig.description or crimeType),
         duration    = 3000,
     })
 
@@ -479,7 +501,7 @@ local function StartWantedDecaySystem()
                             decayConfig.lastDecayTime = GetGameTimer()
                             lib.notify({
                                 type        = 'inform',
-                                description = '👁 Außer Sichtweite – Fahndungslevel sinkt...',
+                                description = L('wanted_decay_start'),
                                 duration    = 3000,
                             })
                         end
@@ -884,10 +906,10 @@ if Config.Debug then
     RegisterCommand('testcrime', function(_, args)
         local crimeType = args[1] or 'ASSAULT'
         if not Config.CrimeTypes[crimeType] then
-            lib.notify({type='error', description='Unbekannt: ' .. crimeType})
+            lib.notify({type='error', description=L('unknown_crime', crimeType)})
             return
         end
-        lib.notify({type='inform', description='Test: ' .. crimeType})
+        lib.notify({type='inform', description=L('testing_crime', crimeType)})
         LogCrime(crimeType, nil, true)
     end, false)
 
@@ -908,7 +930,7 @@ if Config.Debug then
 
     RegisterCommand('testwitness', function(_, args)
         local crimeType = args[1] or 'ROBBERY'
-        lib.notify({type='inform', description='Witness-Test: ' .. crimeType})
+        lib.notify({type='inform', description=L('testing_crime', crimeType)})
         -- Erzwingt vollen Zeuge-Flow (kein force-flag → Zeuge nötig)
         LogCrime(crimeType, cache.coords, false)
     end, false)

@@ -1,9 +1,21 @@
 ---@diagnostic disable: undefined-global, missing-parameter
--- Version: 1.0.0-alpha
+-- Version: 1.0.1-alpha
 -- ✅ FIX #13: lib.onCache('ped') für echten Spawn-Detection
 --             ox_core Character Selection wird jetzt korrekt abgewartet
 -- ✅ RDE SYNC PATTERN: Broadcast event handlers für alle player states
 -- ✅ RDE SYNC PATTERN: Initial sync beim Join für late-joiners
+-- ✅ FIX #27 (1.0.1-alpha): Locale-Loading via ox_lib (alle Notifications i18n)
+
+-- ============================================================================
+-- LOCALE LOADER (FIX #27)
+-- ============================================================================
+local Locale = lib.load('locales.' .. GetConvar('ox:locale', 'en')) or {}
+local function L(key, ...)
+    local s = Locale[key]
+    if not s then return key end
+    if select('#', ...) > 0 then return s:format(...) end
+    return s
+end
 
 -- ============================================================================
 -- CACHE SYSTEM
@@ -578,7 +590,7 @@ function Police.DragPlayerFromVehicle(copPed, playerPed, vehicle)
     TaskGoToCoordAnyMeans(copPed, pc.x, pc.y, pc.z, 2.0, 0, 0, 786603, 0xbf800000)
     Wait(1500)
     Police.AttemptArrest(copPed)
-    Notify({type='error', description='Dragged from vehicle!', duration=3000})
+    Notify({type='error', description=L('dragged_from_vehicle'), duration=3000})
 end
 
 function Police.CreateRoadblock(unit)
@@ -653,7 +665,7 @@ function Police.TryTackle(unit)
     -- Server-Sync + Sound
     TriggerServerEvent('police:syncTackle', GetPlayerServerId(PlayerId()), direction)
     PlaySoundFrontend(-1, "TACKLE", "PLAYER_TACKLE_SOUNDSET", 1)
-    Notify({type='error', description='💥 Du wurdest von einem Beamten zu Boden gebracht!', duration=3000})
+    Notify({type='error', description=L('tackled'), duration=3000})
     Debug(('Tackle! Prob: %.0f%% | Dist: %.1fm | Duration: %dms'):format(sc*100, distance, playerRagdollDuration))
     return true
 end
@@ -712,7 +724,7 @@ function Police.AttemptArrest(policePed)
         WantedSystem.isArrested    = false
         WantedSystem.isSurrendered = false
         DoScreenFadeIn(1000)
-        Notify({type='error', description='Arrest cancelled', duration=3000})
+        Notify({type='error', description=L('arrest_cancelled'), duration=3000})
         return
     end
 
@@ -727,7 +739,7 @@ function Police.AttemptArrest(policePed)
         Debug('AttemptArrest safety net: teleportToJail event did not arrive — recovering')
         WantedSystem.isArrested = false
         DoScreenFadeIn(1500)
-        Notify({type='error', description='Connection issue — please rejoin if stuck', duration=5000})
+        Notify({type='error', description=L('connection_issue'), duration=5000})
     end)
 end
 
@@ -813,6 +825,9 @@ end
 -- der Datei forward-deklariert damit State-Bag-Handler darauf zugreifen können.
 
 function Prison.StartTimer()
+    -- ✅ FIX #30 (1.0.1-alpha): Debug-Call-Anfang war im 1.0.0-alpha Release
+    -- versehentlich abgeschnitten → ressource konnte gar nicht laden.
+    Debug(('Prison.StartTimer called: timerActive=%s, isJailed=%s, jailTime=%d'):format(
         tostring(WantedSystem.jailTimerActive), tostring(WantedSystem.isJailed), WantedSystem.jailTime or 0
     ))
     if WantedSystem.jailTimerActive then
@@ -875,13 +890,15 @@ function Prison.Release()
     ClearPedTasksImmediately(cache.ped)
     Wait(500)
     DoScreenFadeIn(3000)
-    Notify({type='success', description='Released from jail'})
+    Notify({type='success', description=L('released')})
 end
 
 -- ✅ FIX #18: Defensiver Catch-All. Wird von State-Bag-Handler, Broadcast-Handler
 -- und Watchdog aufgerufen. Sorgt dafür dass der Timer IMMER läuft wenn isJailed=true.
 -- Ist idempotent — mehrfacher Aufruf verursacht keinen Schaden.
 function Prison.EnsureRunning()
+    -- ✅ FIX #30 (1.0.1-alpha): Debug-Call-Anfang rekonstruiert (war im 1.0.0 abgeschnitten)
+    Debug(('Prison.EnsureRunning: inProgress=%s, timerActive=%s, isJailed=%s, jailTime=%d'):format(
         tostring(ensureRunningInProgress), tostring(WantedSystem.jailTimerActive),
         tostring(WantedSystem.isJailed), WantedSystem.jailTime or 0
     ))
@@ -1051,7 +1068,7 @@ end
 
 function WantedSystem.ToggleSurrender()
     if cache.inVehicle then
-        Notify({type='error', description='You cannot surrender while in a vehicle!', duration=3000})
+        Notify({type='error', description=L('cannot_surrender_vehicle'), duration=3000})
         return
     end
     if WantedSystem.isSurrendered then
@@ -1138,7 +1155,7 @@ RegisterNetEvent('police:teleportToJail', function(cell, time)
             Debug('teleportToJail: ped invalid even after timeout — starting timer without teleport')
             DoScreenFadeIn(1000)
             if not WantedSystem.jailTimerActive then Prison.StartTimer() end
-            Notify({type='error', description=('Jailed for %d seconds'):format(time), duration=5000})
+            Notify({type='error', description=L('jailed', time), duration=5000})
             return
         end
 
@@ -1166,7 +1183,7 @@ RegisterNetEvent('police:teleportToJail', function(cell, time)
         if not WantedSystem.jailTimerActive then
             Prison.StartTimer()
         end
-        Notify({type='error', description=('Jailed for %d seconds'):format(time), duration=5000})
+        Notify({type='error', description=L('jailed', time), duration=5000})
         Debug(('FRESH JAIL: Timer started, %ds, isJailed=%s, cell=%d'):format(
             WantedSystem.jailTime, tostring(WantedSystem.isJailed), cell
         ))
@@ -1360,6 +1377,8 @@ RegisterNetEvent('police:systemReady', function(data)
                 t = t + 200
             end
             Wait(500) -- kurzer Extra-Buffer
+            -- ✅ FIX #30 (1.0.1-alpha): Debug-Call-Anfang rekonstruiert (war im 1.0.0 abgeschnitten)
+            Debug(('systemReady jail restore: timerActive=%s, isJailed=%s, jailTime=%d, restoreTime=%d'):format(
                 tostring(WantedSystem.jailTimerActive), tostring(WantedSystem.isJailed),
                 WantedSystem.jailTime or 0, restoreTime
             ))

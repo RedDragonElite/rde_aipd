@@ -224,4 +224,22 @@ return {
     yes                         = 'Yes',
     no                          = 'No',
 
+    -- =========================================================================
+    --  CLIENT — WITNESS / 911-CALL FLOW (NEW IN 1.0.1-alpha)
+    -- =========================================================================
+
+    -- %s = crime description (e.g. "Assault")
+    witness_spotted_you         = '⚠ A witness spotted you! %s',
+    no_witnesses_nearby         = '✓ No witnesses nearby',
+    witness_killed_before_call  = '✓ Witness eliminated – no 911 call',
+    witness_killed_during_call  = '✓ Witness interrupted – call aborted',
+
+    -- =========================================================================
+    --  CLIENT — MISC (NEW IN 1.0.1-alpha)
+    -- =========================================================================
+
+    dragged_from_vehicle        = 'Dragged from vehicle!',
+    arrest_cancelled            = 'Arrest cancelled',
+    connection_issue            = 'Connection issue — please rejoin if stuck',
+
 }

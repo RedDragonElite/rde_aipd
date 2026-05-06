@@ -9,7 +9,19 @@
 --             MySQL-Query abgeschlossen ist, bevor der Client restored.
 --             checkJailStatus-Callback allein ist nicht zuverlässig genug,
 --             da er vor MySQL-Completion aufgerufen werden kann.
+-- ✅ FIX #27 (1.0.1-alpha): Locale-Loading via ox_lib (alle Notifications i18n)
 -- ════════════════════════════════════════════════════════════════
+
+-- ════════════════════════════════════════════════════════════════
+-- LOCALE LOADER (FIX #27)
+-- ════════════════════════════════════════════════════════════════
+local Locale = lib.load('locales.' .. GetConvar('ox:locale', 'en')) or {}
+local function L(key, ...)
+    local s = Locale[key]
+    if not s then return key end
+    if select('#', ...) > 0 then return s:format(...) end
+    return s
+end
 
 local Ox = require '@ox_core.lib.init'
 local PlayerStates = {}
@@ -237,13 +249,13 @@ function SetWantedLevel(source, level, reason)
     if level > oldLevel then
         lib.notify(source, {
             type = 'error',
-            description = ('Wanted Level: %d ⭐'):format(level),
+            description = L('wanted_set', level),
             icon = 'shield-alert'
         })
     elseif level == 0 then
         lib.notify(source, {
             type = 'success',
-            description = 'No longer wanted',
+            description = L('wanted_cleared'),
             icon = 'shield-check'
         })
     end
@@ -326,7 +338,7 @@ function JailPlayer(source, time, cell)
     if IsExemptFromJail(source) then
         lib.notify(source, {
             type = 'info',
-            description = 'Admin exemption: Cannot be jailed',
+            description = L('admin_exempt_jail'),
             icon = 'shield-check'
         })
         Debug(('Admin %d is exempt from jail'):format(source))
@@ -401,7 +413,7 @@ function ReleasePlayer(source)
     TriggerClientEvent('police:teleportFromJail', source)
     lib.notify(source, {
         type = 'success',
-        description = 'Released from jail',
+        description = L('released'),
         icon = 'door-open'
     })
 
@@ -614,7 +626,7 @@ RegisterNetEvent('police:arrest', function(targetId)
     if IsExemptFromArrest(targetId) then
         lib.notify(source, {
             type = 'error',
-            description = 'Cannot arrest admin',
+            description = L('admin_exempt_arrest'),
             icon = 'shield-check'
         })
         return
@@ -701,7 +713,7 @@ lib.addCommand('setwanted', {
     local targetName = GetPlayerName(args.target) or 'Unknown'
     lib.notify(source, {
         type = 'success',
-        description = ('Set %s wanted level to %d'):format(targetName, level)
+        description = L('set_wanted_success', targetName, level)
     })
 end)
 
@@ -718,7 +730,7 @@ lib.addCommand('wanted', {
     local targetName = GetPlayerName(args.target) or 'Unknown'
     lib.notify(source, {
         type = 'success',
-        description = ('Set %s wanted level to %d'):format(targetName, level)
+        description = L('set_wanted_success', targetName, level)
     })
 end)
 
@@ -733,7 +745,7 @@ lib.addCommand('clearwanted', {
     local targetName = GetPlayerName(args.target) or 'Unknown'
     lib.notify(source, {
         type = 'success',
-        description = ('Cleared %s wanted level'):format(targetName)
+        description = L('cleared_wanted_success', targetName)
     })
 end)
 
@@ -750,7 +762,7 @@ lib.addCommand('jail', {
     local targetName = GetPlayerName(args.target) or 'Unknown'
     lib.notify(source, {
         type = 'success',
-        description = ('Jailed %s for %d seconds'):format(targetName, time)
+        description = L('jailed_success', targetName, time)
     })
 end)
 
@@ -765,7 +777,7 @@ lib.addCommand('unjail', {
     local targetName = GetPlayerName(args.target) or 'Unknown'
     lib.notify(source, {
         type = 'success',
-        description = ('Released %s from jail'):format(targetName)
+        description = L('released_success', targetName)
     })
 end)
 
@@ -778,7 +790,7 @@ lib.addCommand('arrest', {
     if not IsPolice(source) then
         lib.notify(source, {
             type = 'error',
-            description = 'You must be police to use this command'
+            description = L('police_only')
         })
         return
     end
@@ -787,7 +799,7 @@ lib.addCommand('arrest', {
     if state.level <= 0 then
         lib.notify(source, {
             type = 'error',
-            description = 'Target has no wanted level'
+            description = L('target_not_wanted')
         })
         return
     end
@@ -795,7 +807,7 @@ lib.addCommand('arrest', {
     if IsExemptFromArrest(args.target) then
         lib.notify(source, {
             type = 'error',
-            description = 'Cannot arrest this player (Admin exemption)'
+            description = L('admin_exempt_arrest')
         })
         return
     end
@@ -807,7 +819,7 @@ lib.addCommand('arrest', {
     local targetName = GetPlayerName(args.target) or 'Unknown'
     lib.notify(source, {
         type = 'success',
-        description = ('Arrested %s for %d seconds'):format(targetName, jailTime)
+        description = L('arrested_success', targetName, jailTime)
     })
 end)
 
@@ -820,7 +832,7 @@ lib.addCommand('checkwanted', {
     if not IsPolice(source) and not IsAdmin(source) then
         lib.notify(source, {
             type = 'error',
-            description = 'You must be police or admin to use this command'
+            description = L('police_only')
         })
         return
     end
@@ -830,7 +842,7 @@ lib.addCommand('checkwanted', {
 
     lib.notify(source, {
         type = 'inform',
-        description = ('%s - Wanted: %d ⭐ | Jailed: %s | Crimes: %d'):format(
+        description = L('status_checkwanted',
             targetName,
             state.level,
             state.isJailed and 'Yes' or 'No',
@@ -846,7 +858,7 @@ lib.addCommand('mywanted', {
     local state = GetPlayerState(source)
     lib.notify(source, {
         type = 'inform',
-        description = ('Wanted Level: %d ⭐ | Total Crimes: %d'):format(
+        description = L('status_wanted',
             state.level,
             state.totalCrimes
         ),
@@ -863,7 +875,7 @@ lib.addCommand('crimehistory', {
 }, function(source, args)
     local charid = GetCharId(args.target)
     if not charid then
-        lib.notify(source, {type = 'error', description = 'Player not found'})
+        lib.notify(source, {type = 'error', description = L('target_not_found')})
         return
     end
 
@@ -901,7 +913,7 @@ lib.addCommand('crimehistory', {
                 end
                 lib.notify(source, {
                     type = 'success',
-                    description = ('Found %d crimes - Check console'):format(#result)
+                    description = L('crimes_found', #result)
                 })
             else
                 print('^5No database records found^7')
@@ -910,7 +922,7 @@ lib.addCommand('crimehistory', {
         end)
     else
         print('^3========================================^7')
-        lib.notify(source, {type = 'success', description = 'Crime history printed to console'})
+        lib.notify(source, {type = 'success', description = L('crimes_found', 0)})
     end
 end)
 
@@ -918,7 +930,7 @@ lib.addCommand('backup', {
     help = 'Call for backup (Police only)'
 }, function(source)
     if not IsPolice(source) then
-        lib.notify(source, {type = 'error', description = 'You must be police to use this command'})
+        lib.notify(source, {type = 'error', description = L('police_only')})
         return
     end
 
@@ -928,21 +940,21 @@ lib.addCommand('backup', {
         if pid and IsPolice(pid) and pid ~= source then
             lib.notify(pid, {
                 type = 'warning',
-                description = 'Officer requesting backup!',
+                description = L('backup_requested'),
                 icon = 'shield-exclamation',
                 duration = 8000
             })
         end
     end
 
-    lib.notify(source, {type = 'success', description = 'Backup called'})
+    lib.notify(source, {type = 'success', description = L('backup_called')})
 end)
 
 lib.addCommand('panic', {
     help = 'Send panic button (Police only)'
 }, function(source)
     if not IsPolice(source) then
-        lib.notify(source, {type = 'error', description = 'You must be police to use this command'})
+        lib.notify(source, {type = 'error', description = L('police_only')})
         return
     end
 
@@ -955,7 +967,7 @@ lib.addCommand('panic', {
         if pid and IsPolice(pid) then
             lib.notify(pid, {
                 type = 'error',
-                description = ('🚨 PANIC BUTTON: %s'):format(officerName),
+                description = L('panic_button', officerName),
                 icon = 'circle-exclamation',
                 duration = 10000
             })
@@ -1015,7 +1027,9 @@ AddEventHandler('playerDropped', function()
         -- ✅ FIX #9: charid aus gecachtem State lesen, NICHT GetCharId() aufrufen.
         local charid = state.charid or GetCharId(source)
         if charid and MySQL then
-
+            -- ✅ FIX #30 (1.0.1-alpha): Debug-Call-Anfang war im 1.0.0-alpha Release
+            -- versehentlich abgeschnitten → ressource konnte gar nicht laden.
+            Debug(('playerDropped: source=%s charid=%s isJailed=%s jailTime=%s'):format(
                 source, tostring(charid), tostring(state.isJailed), tostring(state.jailTime)
             ))
             if state.isJailed and state.jailTime > 0 then
@@ -1103,6 +1117,8 @@ AddEventHandler('ox:playerLoaded', function(playerId, userId, charId)
             Wait(500)
         end
 
+        -- ✅ FIX #30 (1.0.1-alpha): Debug-Call-Anfang rekonstruiert (war im 1.0.0 abgeschnitten)
+        Debug(('playerLoaded: source=%d charId=%s resolvedCharId=%s playerOk=%s'):format(
             source, tostring(charId), tostring(resolvedCharId), tostring(player ~= nil)
         ))
 
@@ -1143,6 +1159,8 @@ AddEventHandler('ox:playerLoaded', function(playerId, userId, charId)
             ]], {charId}, function(result)
                 if result and result[1] then
                     local data = result[1]
+                    -- ✅ FIX #30 (1.0.1-alpha): Debug-Call-Anfang rekonstruiert (war im 1.0.0 abgeschnitten)
+                    Debug(('DB load: is_jailed=%s, jail_time=%s, jail_remaining=%s, charid=%s'):format(
                         tostring(data.is_jailed), tostring(data.jail_time), tostring(data.jail_remaining_calc), tostring(data.charid)
                     ))
 
@@ -1242,6 +1260,8 @@ AddEventHandler('ox:playerLoaded', function(playerId, userId, charId)
                     SyncPlayerState(source)
 
                     -- ✅ Sende systemReady - Client benutzt jetzt die Daten direkt!
+                    -- ✅ FIX #30 (1.0.1-alpha): Debug-Call-Anfang rekonstruiert (war im 1.0.0 abgeschnitten)
+                    Debug(('Sending police:systemReady: isJailed=%s, jailTime=%d'):format(
                         tostring(state.isJailed), state.jailTime or 0
                     ))
                     TriggerClientEvent('police:systemReady', source, {

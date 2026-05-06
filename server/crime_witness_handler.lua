@@ -4,7 +4,21 @@
 -- ════════════════════════════════════════════════════════════════════════════════
 -- Add this to your server/main.lua to support the new witness system
 -- This replaces the standard police:reportCrime handler
+-- ✅ FIX #27 (1.0.1-alpha): Locale-Loading via ox_lib
+-- ✅ FIX #29 (1.0.1-alpha): Doppel-Notification entfernt — SetWantedLevel zeigt
+--                           bereits "Wanted Level: X ⭐" direkt danach.
 -- ════════════════════════════════════════════════════════════════════════════════
+
+-- ════════════════════════════════════════════════════════════════════════════════
+-- LOCALE LOADER (FIX #27)
+-- ════════════════════════════════════════════════════════════════════════════════
+local Locale = lib.load('locales.' .. GetConvar('ox:locale', 'en')) or {}
+local function L(key, ...)
+    local s = Locale[key]
+    if not s then return key end
+    if select('#', ...) > 0 then return s:format(...) end
+    return s
+end
 
 -- NEW: Event for crimes detected but no witnesses
 RegisterNetEvent('police:crimeDetectedNoWitness', function(crimeType, coords)
@@ -129,15 +143,14 @@ RegisterNetEvent('police:reportCrime', function(data)
         -- Set wanted level
         SetWantedLevel(source, newLevel, crimeConfig.description or crimeType)
         
-        -- Show enhanced notification if witness data available
-        if hasWitness and witnessData.witness then
-            local distance = math.floor(witnessData.witness.distance)
-            lib.notify(source, {
-                type = 'error',
-                description = ('🚨 Zeuge hat 911 angerufen! (~%dm entfernt)'):format(distance),
-                duration = 5000
-            })
-        end
+        -- ✅ FIX #29: Extra "Zeuge hat 911 angerufen" Notification entfernt.
+        -- War redundant — SetWantedLevel() unten schickt bereits "Wanted Level: X ⭐".
+        -- Vorher hatte der Spieler 3 Notifications pro Crime:
+        --   1) crime.lua: "Zeuge hat dich gesehen"  (vor 911-Call)
+        --   2) hier:      "Zeuge hat 911 angerufen" (← entfernt, redundant)
+        --   3) main.lua:  "Wanted Level: X ⭐"      (von SetWantedLevel)
+        -- Jetzt: nur noch (1) + (3). Der Witness-Distance-Wert wird trotzdem
+        -- via state.crimeHistory persistiert für /crimes & Nostr-Logs.
     else
         if Config.AdminSettings.showAdminCrimes then
             Debug(('Admin %d committed %s (exempt from wanted)'):format(source, crimeType))

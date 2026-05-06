@@ -215,4 +215,22 @@ return {
     yes                         = 'Ja',
     no                          = 'Nein',
 
+    -- =========================================================================
+    --  CLIENT — ZEUGEN / 911-CALL FLOW (NEU IN 1.0.1-alpha)
+    -- =========================================================================
+
+    -- %s = Verbrechensbeschreibung (z. B. "Körperverletzung")
+    witness_spotted_you         = '⚠ Ein Zeuge hat dich gesehen! %s',
+    no_witnesses_nearby         = '✓ Keine Zeugen in der Nähe',
+    witness_killed_before_call  = '✓ Zeuge ausgeschaltet – kein 911-Call',
+    witness_killed_during_call  = '✓ Zeuge unterbrochen – Call abgebrochen',
+
+    -- =========================================================================
+    --  CLIENT — DIVERSES (NEU IN 1.0.1-alpha)
+    -- =========================================================================
+
+    dragged_from_vehicle        = 'Aus dem Fahrzeug gezogen!',
+    arrest_cancelled            = 'Verhaftung abgebrochen',
+    connection_issue            = 'Verbindungsproblem — bitte neu verbinden falls hängend',
+
 }

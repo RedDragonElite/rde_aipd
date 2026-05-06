@@ -1,5 +1,5 @@
 # rde_aipd
-🔥 ULTIMATE AI POLICE SYSTEM V1.0.0 - Built on ox_core &amp; Statebags! 🚨
+🔥 ULTIMATE AI POLICE SYSTEM V1.0.1 - Built on ox_core & Statebags! 🚨
 
 <img width="1024" height="1024" alt="image" src="https://github.com/user-attachments/assets/7f044614-3c38-4b9e-87ce-40013a560b8a" />
 
@@ -8,7 +8,7 @@ https://www.youtube.com/watch?v=mCWg0jZlSbY
 
 # 🐉 rde_aipd
 
-[![Version](https://img.shields.io/badge/version-1.0.0--alpha-red?style=for-the-badge)](https://github.com/RedDragonElite/rde_aipd)
+[![Version](https://img.shields.io/badge/version-1.0.1--alpha-red?style=for-the-badge)](https://github.com/RedDragonElite/rde_aipd)
 [![License](https://img.shields.io/badge/license-RDE%20Black%20Flag-black?style=for-the-badge)](LICENSE)
 [![FiveM](https://img.shields.io/badge/FiveM-Compatible-blue?style=for-the-badge)](https://fivem.net)
 [![ox_core](https://img.shields.io/badge/Framework-ox__core-blue?style=for-the-badge)](https://github.com/overextended/ox_core)
@@ -20,6 +20,23 @@ https://www.youtube.com/watch?v=mCWg0jZlSbY
 *Built by [Red Dragon Elite](https://rd-elite.com) | Free Forever | No Paywalls | No Legacy*
 
 [📖 Installation](#-installation) • [⚙️ Configuration](#️-configuration) • [🌍 Locales](#-locales) • [🐉 Nostr Logging](#-nostr-logging) • [📡 Exports](#-exports) • [🐛 Troubleshooting](#-troubleshooting) • [🌐 Website](https://rd-elite.com) • [🔭 Terminal](https://rd-elite.com/Files/NOSTR/)
+
+---
+
+## 🚑 Hotfix Notice — Update from 1.0.0-alpha
+
+> **If you're running 1.0.0-alpha, update immediately.** That release shipped with two pre-existing Lua syntax errors that prevented the resource from starting on some servers, plus an admin-block bug that silently disabled the witness/911 system for any player in `Config.AdminGroups`. **1.0.1-alpha is a drop-in replacement** — same config, same database schema, same exports.
+
+### What changed in 1.0.1-alpha
+
+| # | Fix | Impact |
+|---|-----|--------|
+| **#30** | 7 truncated `Debug(...)` calls reconstructed in `client/main.lua` & `server/main.lua` | Resource now actually loads on every server |
+| **#28** | Admin-crime-block now respects `Config.AdminSettings.exemptFromWanted` | Witnesses call 911 again for admin players (default behavior) |
+| **#29** | Removed redundant "Witness called 911" notification | 2 notifications per crime instead of 3 |
+| **#27** | Locale loader added to all client/server files (was only in `nostr.lua`) | `set ox:locale "en"` / `"de"` now actually works everywhere |
+
+Full details in [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
@@ -85,6 +102,8 @@ cd resources
 git clone https://github.com/RedDragonElite/rde_aipd.git
 ```
 
+> **Already on 1.0.0-alpha?** Just `git pull` — no schema migration, no config changes needed. Restart the resource and you're done.
+
 ### Step 2: Add to server.cfg
 
 ```
@@ -137,6 +156,8 @@ Config.AdminSettings = {
 Config.Locale = GetConvar('ox:locale', 'en')
 ```
 
+> **As of 1.0.1-alpha:** `exemptFromWanted = false` actually means *false* now. In 1.0.0-alpha the client-side crime detection was hard-blocking every non-fatal crime for any admin-group player regardless of this flag. Fixed in [#28](CHANGELOG.md).
+
 ### Nostr Config
 
 ```lua
@@ -169,12 +190,16 @@ All user-facing text lives in `locales/`. Default is English. Switch language:
 set ox:locale "de"
 ```
 
+> **As of 1.0.1-alpha:** the locale loader is now active in `client/main.lua`, `client/crime.lua`, `server/main.lua` and `server/crime_witness_handler.lua` — not just `nostr.lua`. If you set `ox:locale "en"` and were still seeing German notifications in 1.0.0, this was [#27](CHANGELOG.md).
+
 **Add a new language:**
 
 1. Copy `locales/en.lua` → `locales/xx.lua`
 2. Translate all values (keep the keys!)
 3. Register it in `fxmanifest.lua` under `files {}`
 4. Set `ox:locale "xx"` in your server.cfg
+
+> **Translators porting from 1.0.0-alpha:** seven new keys were added in 1.0.1-alpha. See [CHANGELOG.md](CHANGELOG.md) → "Added" section. Missing keys won't crash — they fall back to the key name itself — but the text will look broken.
 
 Currently supported:
 
@@ -280,12 +305,14 @@ rde_aipd/
 ├── fxmanifest.lua
 ├── config.lua
 ├── README.md
+├── CHANGELOG.md            ← NEW in 1.0.1-alpha
 ├── LICENSE
 ├── locales/
 │   ├── en.lua              ← English (default)
 │   └── de.lua              ← Deutsch
 ├── server/
 │   ├── main.lua            ← Core server logic, callbacks, jail timer
+│   ├── crime_witness_handler.lua  ← Witness-based 911 reporting
 │   └── nostr.lua           ← Nostr logging integration
 ├── client/
 │   ├── main.lua            ← AI police, wanted system, prison
@@ -311,6 +338,7 @@ Enable with `set police_debug "true"` in server.cfg, then in-game:
 | `testwanted [1-5]` | Set wanted level instantly |
 | `spawncop` | Spawn one test unit at current level |
 | `testcrime [TYPE]` | Force-trigger a crime (bypasses cooldown) |
+| `testwitness [TYPE]` | Force the full witness/911-call flow |
 | `crimestatus` | Show current crime system state |
 | `listcrimes` | List all registered crime types |
 | `testjail [seconds]` | Jail yourself for testing |
@@ -330,9 +358,21 @@ Enable with `set police_debug "true"` in server.cfg, then in-game:
 
 ## 🐛 Troubleshooting
 
+### `attempt to call a nil value` / resource refuses to start
+
+You're on 1.0.0-alpha. Update to 1.0.1-alpha — see [#30 in CHANGELOG.md](CHANGELOG.md). Seven `Debug(...)` calls were truncated in the 1.0.0-alpha tarball, and on stricter Lua parsers the entire file fails to load.
+
+### Witnesses never call 911 / cops never spawn for non-fatal crimes
+
+You're on 1.0.0-alpha **and** your test character is in `Config.AdminGroups`. Either update to 1.0.1-alpha or test from a non-admin character. Fixed in [#28](CHANGELOG.md).
+
 ### `file 'locales.en' not found`
 
 The `locales/en.lua` file is missing or not listed in `fxmanifest.lua`. Make sure both locale files are present and in the `files {}` block.
+
+### `set ox:locale "en"` ignored — still seeing German strings
+
+You're on 1.0.0-alpha. The locale loader was missing in three of four files. Update to 1.0.1-alpha. Fixed in [#27](CHANGELOG.md).
 
 ### Nostr logger not connecting
 
@@ -350,7 +390,7 @@ Install [rde_nostr_log](https://github.com/RedDragonElite/rde_nostr_log) and ens
 
 ### Jail timer not running after reconnect
 
-Fixed in v1.0.0-alpha. If you're still seeing this:
+Fixed in v1.0.0-alpha and verified working in v1.0.1-alpha. If you're still seeing this:
 
 1. Confirm `oxmysql` is running and connected
 2. Check that `police_records` table exists in your DB
@@ -363,7 +403,7 @@ Fixed in v1.0.0-alpha. If you're still seeing this:
 
 ```
 ox_core        → Player & group management
-ox_lib         → UI, callbacks, progress bars, notifications
+ox_lib         → UI, callbacks, progress bars, notifications, locale loader
 ox_inventory   → Inventory & weapon management
 oxmysql        → Async database (auto-create tables)
 StateBags      → Realtime player state sync
@@ -387,9 +427,11 @@ PRs are always welcome.
 
 - ✅ Keep the RDE header in all files
 - ✅ Follow existing code style — ox_core, ox_lib, StateBags
+- ✅ Run `luac -p` on every modified `.lua` file before pushing — 1.0.0 shipped because nobody did
 - ✅ Test on a live server before PR
 - ❌ No telemetry, no paywalls, no ESX/QBCore
 - ❌ Don't downgrade security — server-side validation stays
+- ❌ Don't hardcode user-facing strings — use `L('key')` and add the key to all locale files
 
 ---
 
@@ -402,7 +444,7 @@ PRs are always welcome.
 #                                                                                 #
 #      .:: RED DRAGON ELITE (RDE)  -  BLACK FLAG SOURCE LICENSE v6.66 ::.         #
 #                                                                                 #
-#   PROJECT:    RDE_AIPD (NEXT-GEN AI POLICE & CRIME SYSTEM FOR FIVEM OX_CORE)   #
+#   PROJECT:    RDE_AIPD (NEXT-GEN AI POLICE & CRIME SYSTEM FOR FIVEM OX_CORE)    #
 #   ARCHITECT:  .:: RDE ⧌ Shin [△ ᛋᛅᚱᛒᛅᚾᛏᛋ ᛒᛁᛏᛅ ▽] ::. | https://rd-elite.com     #
 #   ORIGIN:     https://github.com/RedDragonElite                                 #
 #                                                                                 #
@@ -431,7 +473,7 @@ PRs are always welcome.
 #   4. // THE CURSE OF THE COPY-PASTE                                             #
 #      This code implements real StateBag sync, server-side authority,            #
 #      async MySQL, and AI pathfinding logic. If you copy-paste without           #
-#      understanding, you WILL break something important.                          #
+#      understanding, you WILL break something important.                         #
 #      Don't come crying to my DMs. RTFM.                                         #
 #                                                                                 #
 #   --------------------------------------------------------------------------    #
@@ -472,6 +514,7 @@ PRs are always welcome.
 
 - ✅ Read this README fully
 - ✅ Check the [Troubleshooting](#-troubleshooting) section
+- ✅ Read the [CHANGELOG.md](CHANGELOG.md) — your bug may already be fixed
 - ✅ Include your server console output and F8 client logs
 - ❌ Don't open issues without logs — we can't help without them
 

@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RDE | AIPD</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            overflow: hidden;
+            background: transparent;
+            user-select: none;
+            pointer-events: none;
+        }
+
+        /*
+         * POSITION: top-right, above the minimap area.
+         * GTA5 default minimap is bottom-left.
+         * Wanted UI lives top-right (vanilla GTA behavior).
+         * right: 3px  → flush to screen edge like vanilla
+         * top: 18px   → just below the safe-zone top edge
+         */
+        #wanted-hud {
+            position: fixed;
+            top: 18px;
+            right: 3px;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 2px;
+            opacity: 0;
+            transform: translateY(-8px) scale(0.92);
+            transition: opacity 0.30s ease, transform 0.30s ease;
+            pointer-events: none;
+        }
+
+        #wanted-hud.visible {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+        }
+
+        /* ── LABEL ── */
+        #wanted-label {
+            color: rgba(255, 220, 60, 0.92);
+            font-size: 8px;
+            font-weight: 900;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            text-shadow:
+                0 0 12px rgba(255, 180, 0, 0.85),
+                0 1px 3px rgba(0, 0, 0, 1);
+            margin-right: 2px;
+        }
+
+        /* ── STARS ROW ── */
+        #stars-row {
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            gap: 4px;
+        }
+
+        /* ── STAR BASE (inactive) ── */
+        .star {
+            width: 26px;
+            height: 26px;
+            background-image: url('star.png');
+            background-size: contain;
+            background-repeat: no-repeat;
+            background-position: center;
+            opacity: 0.18;
+            filter: grayscale(100%) brightness(0.30);
+            transition: opacity 0.25s ease, filter 0.25s ease, transform 0.18s ease;
+            transform-origin: center;
+        }
+
+        /* ── ACTIVE: steady filled stars ── */
+        .star.active {
+            opacity: 0.85;
+            filter: grayscale(0%) brightness(1.05)
+                    drop-shadow(0 0 3px rgba(255, 195, 0, 0.55));
+        }
+
+        /* ── PULSE: last active star — gold 1-3 stars ── */
+        .star.pulse {
+            opacity: 1;
+            filter: grayscale(0%) brightness(1.30)
+                    drop-shadow(0 0 7px rgba(255, 190, 0, 0.90));
+            animation: pulseGold 1.8s ease-in-out infinite;
+        }
+
+        /* ── ALERT: last active star — red-orange at 4-5 stars ── */
+        .star.pulse.alert {
+            filter: grayscale(0%) brightness(1.35)
+                    drop-shadow(0 0 9px rgba(255, 50, 50, 0.95));
+            animation: pulseAlert 1.2s ease-in-out infinite;
+        }
+
+        @keyframes pulseGold {
+            0%   { transform: scale(1.00); filter: grayscale(0%) brightness(1.15) drop-shadow(0 0 5px  rgba(255,195,0,0.70)); }
+            42%  { transform: scale(1.15); filter: grayscale(0%) brightness(1.60) drop-shadow(0 0 14px rgba(255,215,50,1.00)); }
+            68%  { transform: scale(1.07); filter: grayscale(0%) brightness(1.35) drop-shadow(0 0 8px  rgba(255,185,0,0.85)); }
+            100% { transform: scale(1.00); filter: grayscale(0%) brightness(1.15) drop-shadow(0 0 5px  rgba(255,195,0,0.70)); }
+        }
+
+        @keyframes pulseAlert {
+            0%   { transform: scale(1.00); filter: grayscale(0%) brightness(1.20) drop-shadow(0 0 6px  rgba(255,55,30,0.80)); }
+            38%  { transform: scale(1.18); filter: grayscale(0%) brightness(1.70) drop-shadow(0 0 18px rgba(255,80,20,1.00)); }
+            66%  { transform: scale(1.08); filter: grayscale(0%) brightness(1.42) drop-shadow(0 0 11px rgba(255,40,40,0.92)); }
+            100% { transform: scale(1.00); filter: grayscale(0%) brightness(1.20) drop-shadow(0 0 6px  rgba(255,55,30,0.80)); }
+        }
+
+        /* ── POP: newly activated star ── */
+        @keyframes starPop {
+            0%   { transform: scale(0.40); opacity: 0; }
+            55%  { transform: scale(1.25); }
+            80%  { transform: scale(0.93); }
+            100% { transform: scale(1.00); }
+        }
+        .star.pop {
+            animation: starPop 0.30s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="wanted-hud">
+        <span id="wanted-label">WANTED</span>
+        <div id="stars-row">
+            <div class="star" data-index="0"></div>
+            <div class="star" data-index="1"></div>
+            <div class="star" data-index="2"></div>
+            <div class="star" data-index="3"></div>
+            <div class="star" data-index="4"></div>
+        </div>
+    </div>
+
+    <script>
+        'use strict';
+
+        const hud   = document.getElementById('wanted-hud');
+        const stars = Array.from(document.querySelectorAll('.star'));
+        let   currentLevel = 0;
+
+        function updateWantedLevel(level) {
+            level = Math.max(0, Math.min(5, level || 0));
+            if (level === 0) { hideWantedUI(); return; }
+
+            const prev  = currentLevel;
+            currentLevel = level;
+
+            hud.classList.add('visible');
+
+            stars.forEach((star, idx) => {
+                star.classList.remove('active', 'pulse', 'alert', 'pop');
+
+                if (idx < level - 1) {
+                    // Filled, steady
+                    star.classList.add('active');
+
+                } else if (idx === level - 1) {
+                    // Last active star — always pulses
+                    star.classList.add('active', 'pulse');
+                    if (level >= 4) star.classList.add('alert');
+
+                    // Pop animation only when newly lit
+                    if (idx >= prev - 1) {
+                        star.classList.add('pop');
+                        setTimeout(() => star.classList.remove('pop'), 330);
+                    }
+                }
+                // idx >= level → stays dim
+            });
+        }
+
+        function hideWantedUI() {
+            currentLevel = 0;
+            hud.classList.remove('visible');
+            setTimeout(() => {
+                stars.forEach(s => s.classList.remove('active', 'pulse', 'alert', 'pop'));
+            }, 360);
+        }
+
+        // Signal Lua that NUI DOM is ready — triggers immediate state push
+        fetch('https://' + GetParentResourceName() + '/nuiReady', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({}),
+        }).catch(() => {});
+
+        window.addEventListener('message', ({ data }) => {
+            if (!data || !data.type) return;
+            switch (data.type) {
+                case 'updateWantedLevel': updateWantedLevel(data.level); break;
+                case 'hideWantedUI':
+                case 'forceReset':        hideWantedUI(); break;
+            }
+        });
+    </script>
+
+</body>
+</html>

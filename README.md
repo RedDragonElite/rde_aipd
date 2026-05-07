@@ -61,7 +61,7 @@ We said no.
 - 🤖 **True Line-of-Sight AI** — cops only react to what they can actually see
 - 🧠 **Threat Assessment** — dynamic threat calculation per unit (weapons, speed, cover, escape history)
 - 😮‍💨 **Player Fatigue** — sprint enough and you slow down; cops exploit that
-- ⭐ **6 Wanted Levels** — from minor warrant to maximum response with helicopters & roadblocks
+- ⭐ **5 Wanted Levels** — from minor warrant to maximum response with helicopters & roadblocks
 - 📉 **Realistic Decay** — wanted level drops only when no officer has eyes on you
 - 🥊 **Tackle System** — cops can physically tackle fleeing suspects
 - 🚨 **Full Crime Detection** — 13+ crime types, witness system, area multipliers

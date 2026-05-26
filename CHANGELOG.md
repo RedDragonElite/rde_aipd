@@ -1,4 +1,4 @@
-# Changelog 🚑 v1.0.4-alpha — Race-Proof & Crash-Free
+# 🚑 v1.0.4-alpha — Race-Proof & Crash-Free
 
 > **Drop-in replacement for any 1.0.x-alpha release.** Same config, same DB schema,
 > same exports. No migration needed for new installs. Existing installs may want
@@ -74,3 +74,22 @@ WHERE id IN (
 ## How to verify the fix in-game
 
 With `set police_debug "true"`:
+/testwitness ASSAULT       # 1st → "🚨 Crime reported WITH witness"
+/testwitness ASSAULT       # within 2s → "🚫 Dedup: ASSAULT ... skipped"
+wait 3s
+/testwitness ASSAULT       # goes through again
+
+Server console should print exactly one `INSERT` per logical crime, never two.
+
+## Compatibility
+
+- ✅ Drop-in replacement — no config changes
+- ✅ No DB schema change
+- ✅ No locale key additions
+- ✅ All existing exports unchanged
+- ✅ Backwards compatible with 1.0.0/1.0.1/1.0.2/1.0.3 saves
+
+---
+
+**Full diff:** `1.0.1-alpha...1.0.4-alpha`
+**Built with 🔥 by [Red Dragon Elite](https://rd-elite.com)**

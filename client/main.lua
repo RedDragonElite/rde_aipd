@@ -945,6 +945,30 @@ function Prison.StartTimer()
     WantedSystem.jailTimerActive = true
     Debug(('Prison.StartTimer: %ds, gen=%d'):format(WantedSystem.jailTime, myGen))
 
+    -- ✅ FIX #39 (1.0.5-alpha): Jail Timer in zwei Threads gesplittet.
+    -- VORHER (1.0.3/1.0.4): Wait(100) im selben Thread für Draw + Counter
+    --   → Immediate-Mode Natives (DrawRect/DrawText) werden nur 1 Frame lang
+    --     gezeichnet. Bei Wait(100) = 10 Hz Refresh bei 60 FPS = 6 von 60
+    --     Frames sichtbar = HARD FLICKER.
+    -- JETZT:
+    --   Thread A: Wait(0), nur DrawJailTimer() — MUSS jeden Frame laufen
+    --             weil immediate-mode rendering. Kosten: ~0.01ms/frame.
+    --   Thread B: Wait(1000), nur Counter-Decrement — schläft 99,9% der Zeit.
+    -- Beide synchronisiert via myGen + jailTimerActive — sauber, kein Race.
+
+    -- Thread A: Rendering (immediate-mode, muss Wait(0))
+    CreateThread(function()
+        while myGen == jailTimerGen
+            and WantedSystem.jailTime > 0
+            and (WantedSystem.isJailed or WantedSystem.isArrested)
+            and WantedSystem.jailTimerActive
+        do
+            Wait(0)
+            UI.DrawJailTimer(WantedSystem.jailTime)
+        end
+    end)
+
+    -- Thread B: Counter-Logik (1 Hz reicht, kein Drift durch GetGameTimer-Anchor)
     CreateThread(function()
         local lastTick = GetGameTimer()
         while myGen == jailTimerGen
@@ -952,14 +976,10 @@ function Prison.StartTimer()
             and (WantedSystem.isJailed or WantedSystem.isArrested)
             and WantedSystem.jailTimerActive
         do
-            -- ✅ FIX #36 (1.0.3-alpha): Wait(0) → Wait(100). Skill-Standard:
-            -- "Always Wait(N) — never Wait(0) unless absolutely necessary".
-            -- UI-Refresh 10x/sek reicht völlig für einen Sekunden-Timer.
-            Wait(100)
-            UI.DrawJailTimer(WantedSystem.jailTime)
+            Wait(1000)
             local now = GetGameTimer()
-            if now - lastTick >= 1000 then
-                local elapsed = math.floor((now - lastTick) / 1000)
+            local elapsed = math.floor((now - lastTick) / 1000)
+            if elapsed > 0 then
                 lastTick = lastTick + elapsed * 1000
                 WantedSystem.jailTime = math.max(0, WantedSystem.jailTime - elapsed)
             end

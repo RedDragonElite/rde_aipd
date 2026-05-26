@@ -1,5 +1,5 @@
 # rde_aipd
-🔥 ULTIMATE AI POLICE SYSTEM V1.0.4-ALPHA - Built on ox_core & Statebags! 🚨
+🔥 ULTIMATE AI POLICE SYSTEM V1.0.5-ALPHA - Built on ox_core & Statebags! 🚨
 
 <img width="1024" height="1024" alt="image" src="https://github.com/user-attachments/assets/7f044614-3c38-4b9e-87ce-40013a560b8a" />
 
@@ -8,7 +8,7 @@ https://www.youtube.com/watch?v=mCWg0jZlSbY
 
 # 🐉 rde_aipd
 
-[![Version](https://img.shields.io/badge/version-1.0.4--alpha-red?style=for-the-badge)](https://github.com/RedDragonElite/rde_aipd)
+[![Version](https://img.shields.io/badge/version-1.0.5--alpha-red?style=for-the-badge)](https://github.com/RedDragonElite/rde_aipd)
 [![License](https://img.shields.io/badge/license-RDE%20Black%20Flag-black?style=for-the-badge)](LICENSE)
 [![FiveM](https://img.shields.io/badge/FiveM-Compatible-blue?style=for-the-badge)](https://fivem.net)
 [![ox_core](https://img.shields.io/badge/Framework-ox__core-blue?style=for-the-badge)](https://github.com/overextended/ox_core)
@@ -23,20 +23,34 @@ https://www.youtube.com/watch?v=mCWg0jZlSbY
 
 ---
 
-## 🚑 Hotfix Notice — Update from 1.0.1/1.0.2/1.0.3-alpha
+## 🚑 Hotfix Notice — v1.0.5-alpha (Mandatory if on v1.0.4-alpha)
 
-> **If you're running any 1.0.x-alpha before 1.0.4, update.** The witness handler had a `Debug` cross-file `nil` crash that killed the entire crime path on every server restart since 1.0.2, a silent double-insert bug that doubled every unwitnessed crime in your `crime_logs`, and no server-side protection against race-condition or external-resource double-fires. **1.0.4-alpha is a drop-in replacement** — same config, same database schema, same exports.
+> **If you pushed v1.0.4-alpha and your jailed players reported a flickering jail-time HUD, this is the fix.** v1.0.4 changed the jail timer's `Wait(0)` to `Wait(100)` on the assumption it was a perf-only loop — but `UI.DrawJailTimer()` uses GTA immediate-mode natives (`DrawRect`, `DrawText`) which only render the exact frame they're called in. At 60 FPS + `Wait(100)`, that's ~6 of every 60 frames visible. Pure flicker. v1.0.5-alpha splits the render and counter logic into two threads — the renderer stays at `Wait(0)` (mandatory for immediate-mode), the counter sleeps 99.9% of the time at `Wait(1000)`. Net result: lower CPU than the original v1.0.0 code, zero flicker.
 
-### What changed in 1.0.4-alpha
+### What changed in 1.0.5-alpha
+
+| # | Fix | Severity | Impact |
+|---|-----|----------|--------|
+| **#39** | Jail timer split into two threads — render at `Wait(0)` (immediate-mode required), counter at `Wait(1000)` | 🟠 High | Fixes hard flicker introduced in 1.0.4 by mis-applied perf "fix" #36; also more efficient than v1.0.0's original single-thread code |
+
+> **Lesson logged in the contributing guidelines:** GTA immediate-mode natives (`DrawRect` / `DrawText` / `DrawSprite` / `DrawMarker` / `DisableControlAction`) **must** run on `Wait(0)`. The "always use Wait(N≥10)" rule from RDE OX Standards applies to polling/state/asset loops — not to per-frame rendering. See [Contributing](#-contributing).
+
+---
+
+## 🚑 Hotfix Notice — v1.0.4-alpha (still applies if on 1.0.1/1.0.2/1.0.3)
+
+> The witness handler had a `Debug` cross-file `nil` crash that killed the entire crime path on every server restart since 1.0.2, a silent double-insert bug that doubled every unwitnessed crime in `crime_logs`, and no server-side protection against race-condition or external-resource double-fires. **1.0.5-alpha is a drop-in replacement** — same config, same database schema, same exports. All fixes below are still included.
+
+### What changed in 1.0.4-alpha (still applies)
 
 | # | Fix | Severity | Impact |
 |---|-----|----------|--------|
 | **#34** | `Debug(...)` was `local` in `server/main.lua`, called from `server/crime_witness_handler.lua` — instant `nil` value crash on first crime | 🔴 Critical | Crime witness path was effectively dead — no wanted level, no police alerts |
 | **#35** | Double `table.insert` in `state.crimeHistory` for unwitnessed crimes (both the handler AND `LogCrime()` were inserting) | 🟠 High | Every silent crime counted twice in `/crimes` and `crime_logs` |
-| **#36** | `Wait(0)` 60+ fps loop in `Prison.StartTimer` (only needed 1 Hz precision) | 🟡 Medium | ~6× CPU saved per jailed player |
+| **#36** | `Wait(0)` 60+ fps loop in `Prison.StartTimer` (only needed 1 Hz precision) ⚠️ **superseded by #39 in 1.0.5** | 🟡 Medium | Original intent was CPU savings; turned into flicker regression — fully corrected in 1.0.5 |
 | **#37** | `server/nostr.lua` had no `or {}` locale fallback — every `:format()` crashed on missing locale file | 🟠 High | Nostr logging died silently on any locale convar mismatch |
 | **#38** | Server-side `CrimeReportCache` (2s dedup window) added to `police:reportCrime` and `police:crimeDetectedNoWitness` | 🟠 High | Race-conditions, external-resource double-fires, and `/testwitness` spam can no longer create duplicate DB rows |
-| polish | `Wait(0)` → `Wait(10)` in `LoadAnimDict()` / `LoadModel()` | 🟢 Low | RDE OX Standards compliance |
+| polish | `Wait(0)` → `Wait(10)` in `LoadAnimDict()` / `LoadModel()` | 🟢 Low | RDE OX Standards compliance — these are asset-load loops, not render loops |
 
 Full details and the legacy duplicate-cleanup SQL in [CHANGELOG.md](CHANGELOG.md).
 
@@ -66,6 +80,7 @@ We said no.
 | 0.5ms+ idle resource usage | < 0.01ms idle — aggressive optimization |
 | No locale support | Full EN / DE multilanguage |
 | Trusts the client blindly | Server-side dedup window — race-proof by design |
+| Single-thread render+logic spaghetti | Clean thread separation per concern |
 | Paid or locked down | 100% free forever — RDE Black Flag |
 
 ### 🎯 Key Features
@@ -78,7 +93,7 @@ We said no.
 - 🥊 **Tackle System** — cops can physically tackle fleeing suspects
 - 🚨 **Full Crime Detection** — 13+ crime types, witness system, area multipliers
 - 🛡️ **Server-Side Dedup** — race-proof crime reporting with 2s per-player+per-type window
-- ⛓ **Prison System** — auto-jail, inventory save/restore, persistent state across reconnects
+- ⛓ **Prison System** — auto-jail, inventory save/restore, persistent state across reconnects, flicker-free HUD
 - 🐉 **Nostr Logging** — decentralized, cryptographically signed, uncensorable server logs
 - 🌍 **Multilanguage** — EN / DE out of the box, add any language in minutes
 - 🛡 **Server-Side Authority** — all sensitive actions validated server-side, statebag-synced
@@ -115,7 +130,7 @@ cd resources
 git clone https://github.com/RedDragonElite/rde_aipd.git
 ```
 
-> **Already on 1.0.0/1.0.1/1.0.2/1.0.3-alpha?** Just `git pull` — no schema migration, no config changes needed. Restart the resource and you're done. If you want to clean up legacy duplicate rows in `crime_logs`, run the dedup query in [CHANGELOG.md](CHANGELOG.md).
+> **Already on 1.0.0/1.0.1/1.0.2/1.0.3/1.0.4-alpha?** Just `git pull` — no schema migration, no config changes needed. Restart the resource and you're done. If you want to clean up legacy duplicate rows in `crime_logs`, run the dedup query in [CHANGELOG.md](CHANGELOG.md).
 
 ### Step 2: Add to server.cfg
 
@@ -320,7 +335,7 @@ rde_aipd/
 ├── fxmanifest.lua
 ├── config.lua
 ├── README.md
-├── CHANGELOG.md            ← Updated for 1.0.4-alpha
+├── CHANGELOG.md            ← Updated for 1.0.5-alpha
 ├── LICENSE
 ├── locales/
 │   ├── en.lua              ← English (default)
@@ -330,7 +345,7 @@ rde_aipd/
 │   ├── crime_witness_handler.lua  ← Witness-based 911 reporting + dedup cache
 │   └── nostr.lua           ← Nostr logging integration
 ├── client/
-│   ├── main.lua            ← AI police, wanted system, prison
+│   ├── main.lua            ← AI police, wanted system, prison (split-thread timer)
 │   └── crime.lua           ← Crime detection & witness system
 └── html/
     ├── wanted_stars.html
@@ -367,6 +382,13 @@ Enable with `set police_debug "true"` in server.cfg, then in-game:
 /testwitness ASSAULT       # goes through again
 ```
 
+**Verify the 1.0.5 timer fix:**
+
+```
+/testjail 60        # jail yourself for 60s
+# Jail Time HUD should render smoothly — no flicker, no stutter
+```
+
 ---
 
 ## 🛡 Security
@@ -383,9 +405,13 @@ Enable with `set police_debug "true"` in server.cfg, then in-game:
 
 ## 🐛 Troubleshooting
 
+### Jail Time HUD flickers / blinks rapidly
+
+You're on v1.0.4-alpha. The render loop was running at `Wait(100)`, but `DrawRect` and `DrawText` are immediate-mode natives that only render one frame at a time. Update to v1.0.5-alpha. Fixed in [#39](CHANGELOG.md).
+
 ### `attempt to call a nil value (global 'Debug')` in crime_witness_handler.lua
 
-You're on 1.0.1/1.0.2/1.0.3-alpha. The `Debug(...)` function was declared `local` in `server/main.lua`, and Lua can't cross-file local references — so the witness handler hit `nil` the moment any crime fired. Update to 1.0.4-alpha. Fixed in [#34](CHANGELOG.md).
+You're on 1.0.1/1.0.2/1.0.3-alpha. The `Debug(...)` function was declared `local` in `server/main.lua`, and Lua can't cross-file local references — so the witness handler hit `nil` the moment any crime fired. Update to 1.0.5-alpha. Fixed in [#34](CHANGELOG.md).
 
 ### Duplicate rows in `crime_logs` for the same crime + same second
 
@@ -394,7 +420,7 @@ You're on 1.0.1/1.0.2/1.0.3-alpha. Two separate bugs were causing this:
 1. **Unwitnessed crimes** (`witnessed=false`): `police:crimeDetectedNoWitness` was double-inserting via both `table.insert(crimeHistory, ...)` AND `LogCrime()`. Fixed in [#35](CHANGELOG.md).
 2. **Witnessed crimes** (`witnessed=true`): No server-side dedup protected against client races, external-resource double-fires, or `/testwitness` spam. Fixed in [#38](CHANGELOG.md).
 
-Update to 1.0.4-alpha. To clean up legacy duplicates already in your DB:
+Update to 1.0.5-alpha. To clean up legacy duplicates already in your DB:
 
 ```sql
 -- Detect
@@ -426,15 +452,15 @@ WHERE id IN (
 
 ### `attempt to index a nil value (local 'Locale')` in nostr.lua
 
-You're on 1.0.1/1.0.2/1.0.3-alpha and `lib.load('locales.xx')` couldn't find your locale file — `Locale` was `nil` and `:format()` blew up. Fixed in [#37](CHANGELOG.md). Update to 1.0.4-alpha or temporarily set `Config.Nostr.enabled = false`.
+You're on 1.0.1/1.0.2/1.0.3-alpha and `lib.load('locales.xx')` couldn't find your locale file — `Locale` was `nil` and `:format()` blew up. Fixed in [#37](CHANGELOG.md). Update to 1.0.5-alpha or temporarily set `Config.Nostr.enabled = false`.
 
 ### Jail timer feels laggy / high CPU on jailed players
 
-You're on 1.0.1/1.0.2/1.0.3-alpha — `Prison.StartTimer` was running a `Wait(0)` 60fps loop just to redraw a second-precision countdown. Fixed in [#36](CHANGELOG.md). Update to 1.0.4-alpha; CPU per jailed player drops ~6×.
+You're on 1.0.1/1.0.2/1.0.3-alpha — `Prison.StartTimer` ran a `Wait(0)` 60fps loop including `GetGameTimer()` math on every frame. The fix in 1.0.4 over-corrected and introduced flicker; the proper fix landed in 1.0.5 with split rendering/counter threads. Update to 1.0.5-alpha. See [#36](CHANGELOG.md) (initial) and [#39](CHANGELOG.md) (final).
 
 ### `attempt to call a nil value` / resource refuses to start
 
-You're on 1.0.0-alpha. Update to 1.0.1-alpha (or directly 1.0.4-alpha) — see [#30 in CHANGELOG.md](CHANGELOG.md). Seven `Debug(...)` calls were truncated in the 1.0.0-alpha tarball, and on stricter Lua parsers the entire file fails to load.
+You're on 1.0.0-alpha. Update to 1.0.5-alpha — see [#30 in CHANGELOG.md](CHANGELOG.md). Seven `Debug(...)` calls were truncated in the 1.0.0-alpha tarball, and on stricter Lua parsers the entire file fails to load.
 
 ### Witnesses never call 911 / cops never spawn for non-fatal crimes
 
@@ -464,7 +490,7 @@ Install [rde_nostr_log](https://github.com/RedDragonElite/rde_nostr_log) and ens
 
 ### Jail timer not running after reconnect
 
-Verified working in v1.0.4-alpha. If you're still seeing this:
+Verified working in v1.0.5-alpha. If you're still seeing this:
 
 1. Confirm `oxmysql` is running and connected
 2. Check that `police_records` table exists in your DB
@@ -502,9 +528,14 @@ PRs are always welcome.
 - ✅ Keep the RDE header in all files
 - ✅ Follow existing code style — ox_core, ox_lib, StateBags
 - ✅ Run `luac -p` on every modified `.lua` file before pushing — 1.0.0 shipped because nobody did
-- ✅ Test on a live server before PR
+- ✅ Test on a live server before PR — visually verify HUD elements (1.0.4 shipped a flicker because no one looked)
 - ✅ Every file has its own `local function Debug(...)` — never reach for another file's local logger (this is the bug that took down 1.0.1–1.0.3)
 - ✅ Server-side validation stays — `CrimeReportCache` pattern is non-negotiable for new crime events
+- ✅ **Wait timing — read this carefully:**
+  - `Wait(0)` is **required** for: GTA immediate-mode natives (`DrawRect`, `DrawText`, `DrawSprite`, `DrawMarker`, `Draw3DText`), per-frame control disabling (`DisableControlAction`), per-frame physics polling
+  - `Wait(10–100)` is correct for: input polling, distance checks, statebag reads, animation/model asset loading
+  - `Wait(1000+)` is correct for: tick-based counters, periodic cleanup, status sync
+  - If unsure, ask in the issue tracker before changing a `Wait()` value. The 1.0.3 → 1.0.4 → 1.0.5 saga is a textbook example of why.
 - ❌ No telemetry, no paywalls, no ESX/QBCore
 - ❌ Don't downgrade security — server-side validation stays
 - ❌ Don't hardcode user-facing strings — use `L('key')` and add the key to all locale files

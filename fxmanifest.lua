@@ -5,7 +5,7 @@ lua54 'yes'
 author 'RDE | SerpentsByte'
 name 'rde_aipd'
 description 'RDE AIPD | Next-Gen Crime & AI Police System'
-version '1.0.4-alpha'
+version '1.0.5-alpha'
 
 -- ============================================================================
 --     NUI

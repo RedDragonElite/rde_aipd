@@ -1,5 +1,5 @@
 # rde_aipd
-🔥 ULTIMATE AI POLICE SYSTEM V1.0.1 - Built on ox_core & Statebags! 🚨
+🔥 ULTIMATE AI POLICE SYSTEM V1.0.4-ALPHA - Built on ox_core & Statebags! 🚨
 
 <img width="1024" height="1024" alt="image" src="https://github.com/user-attachments/assets/7f044614-3c38-4b9e-87ce-40013a560b8a" />
 
@@ -8,14 +8,14 @@ https://www.youtube.com/watch?v=mCWg0jZlSbY
 
 # 🐉 rde_aipd
 
-[![Version](https://img.shields.io/badge/version-1.0.1--alpha-red?style=for-the-badge)](https://github.com/RedDragonElite/rde_aipd)
+[![Version](https://img.shields.io/badge/version-1.0.4--alpha-red?style=for-the-badge)](https://github.com/RedDragonElite/rde_aipd)
 [![License](https://img.shields.io/badge/license-RDE%20Black%20Flag-black?style=for-the-badge)](LICENSE)
 [![FiveM](https://img.shields.io/badge/FiveM-Compatible-blue?style=for-the-badge)](https://fivem.net)
 [![ox_core](https://img.shields.io/badge/Framework-ox__core-blue?style=for-the-badge)](https://github.com/overextended/ox_core)
 [![Nostr](https://img.shields.io/badge/Nostr-Decentralized-purple?style=for-the-badge)](https://github.com/RedDragonElite/rde_nostr_log)
 [![Quality](https://img.shields.io/badge/Quality-Production-gold?style=for-the-badge)](https://github.com/RedDragonElite)
 
-**🚨 RDE AIPD | Next-Gen AI Police & Crime System for FiveM ox_core | Ultra-Realistic | StateBag-Synced | Nostr-Logged | Production-Ready**
+**🚨 RDE AIPD | Next-Gen AI Police & Crime System for FiveM ox_core | Ultra-Realistic | StateBag-Synced | Nostr-Logged | Race-Proof | Production-Ready**
 
 *Built by [Red Dragon Elite](https://rd-elite.com) | Free Forever | No Paywalls | No Legacy*
 
@@ -23,20 +23,31 @@ https://www.youtube.com/watch?v=mCWg0jZlSbY
 
 ---
 
-## 🚑 Hotfix Notice — Update from 1.0.0-alpha
+## 🚑 Hotfix Notice — Update from 1.0.1/1.0.2/1.0.3-alpha
 
-> **If you're running 1.0.0-alpha, update immediately.** That release shipped with two pre-existing Lua syntax errors that prevented the resource from starting on some servers, plus an admin-block bug that silently disabled the witness/911 system for any player in `Config.AdminGroups`. **1.0.1-alpha is a drop-in replacement** — same config, same database schema, same exports.
+> **If you're running any 1.0.x-alpha before 1.0.4, update.** The witness handler had a `Debug` cross-file `nil` crash that killed the entire crime path on every server restart since 1.0.2, a silent double-insert bug that doubled every unwitnessed crime in your `crime_logs`, and no server-side protection against race-condition or external-resource double-fires. **1.0.4-alpha is a drop-in replacement** — same config, same database schema, same exports.
 
-### What changed in 1.0.1-alpha
+### What changed in 1.0.4-alpha
+
+| # | Fix | Severity | Impact |
+|---|-----|----------|--------|
+| **#34** | `Debug(...)` was `local` in `server/main.lua`, called from `server/crime_witness_handler.lua` — instant `nil` value crash on first crime | 🔴 Critical | Crime witness path was effectively dead — no wanted level, no police alerts |
+| **#35** | Double `table.insert` in `state.crimeHistory` for unwitnessed crimes (both the handler AND `LogCrime()` were inserting) | 🟠 High | Every silent crime counted twice in `/crimes` and `crime_logs` |
+| **#36** | `Wait(0)` 60+ fps loop in `Prison.StartTimer` (only needed 1 Hz precision) | 🟡 Medium | ~6× CPU saved per jailed player |
+| **#37** | `server/nostr.lua` had no `or {}` locale fallback — every `:format()` crashed on missing locale file | 🟠 High | Nostr logging died silently on any locale convar mismatch |
+| **#38** | Server-side `CrimeReportCache` (2s dedup window) added to `police:reportCrime` and `police:crimeDetectedNoWitness` | 🟠 High | Race-conditions, external-resource double-fires, and `/testwitness` spam can no longer create duplicate DB rows |
+| polish | `Wait(0)` → `Wait(10)` in `LoadAnimDict()` / `LoadModel()` | 🟢 Low | RDE OX Standards compliance |
+
+Full details and the legacy duplicate-cleanup SQL in [CHANGELOG.md](CHANGELOG.md).
+
+### What changed in 1.0.1-alpha (still applies)
 
 | # | Fix | Impact |
 |---|-----|--------|
-| **#30** | 7 truncated `Debug(...)` calls reconstructed in `client/main.lua` & `server/main.lua` | Resource now actually loads on every server |
+| **#30** | 7 truncated `Debug(...)` calls reconstructed in `client/main.lua` & `server/main.lua` | Resource actually loads on every server |
 | **#28** | Admin-crime-block now respects `Config.AdminSettings.exemptFromWanted` | Witnesses call 911 again for admin players (default behavior) |
 | **#29** | Removed redundant "Witness called 911" notification | 2 notifications per crime instead of 3 |
 | **#27** | Locale loader added to all client/server files (was only in `nostr.lua`) | `set ox:locale "en"` / `"de"` now actually works everywhere |
-
-Full details in [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
@@ -54,6 +65,7 @@ We said no.
 | ESX / QBCore bloat | ox_core only — the future, not the past |
 | 0.5ms+ idle resource usage | < 0.01ms idle — aggressive optimization |
 | No locale support | Full EN / DE multilanguage |
+| Trusts the client blindly | Server-side dedup window — race-proof by design |
 | Paid or locked down | 100% free forever — RDE Black Flag |
 
 ### 🎯 Key Features
@@ -65,6 +77,7 @@ We said no.
 - 📉 **Realistic Decay** — wanted level drops only when no officer has eyes on you
 - 🥊 **Tackle System** — cops can physically tackle fleeing suspects
 - 🚨 **Full Crime Detection** — 13+ crime types, witness system, area multipliers
+- 🛡️ **Server-Side Dedup** — race-proof crime reporting with 2s per-player+per-type window
 - ⛓ **Prison System** — auto-jail, inventory save/restore, persistent state across reconnects
 - 🐉 **Nostr Logging** — decentralized, cryptographically signed, uncensorable server logs
 - 🌍 **Multilanguage** — EN / DE out of the box, add any language in minutes
@@ -102,7 +115,7 @@ cd resources
 git clone https://github.com/RedDragonElite/rde_aipd.git
 ```
 
-> **Already on 1.0.0-alpha?** Just `git pull` — no schema migration, no config changes needed. Restart the resource and you're done.
+> **Already on 1.0.0/1.0.1/1.0.2/1.0.3-alpha?** Just `git pull` — no schema migration, no config changes needed. Restart the resource and you're done. If you want to clean up legacy duplicate rows in `crime_logs`, run the dedup query in [CHANGELOG.md](CHANGELOG.md).
 
 ### Step 2: Add to server.cfg
 
@@ -190,7 +203,7 @@ All user-facing text lives in `locales/`. Default is English. Switch language:
 set ox:locale "de"
 ```
 
-> **As of 1.0.1-alpha:** the locale loader is now active in `client/main.lua`, `client/crime.lua`, `server/main.lua` and `server/crime_witness_handler.lua` — not just `nostr.lua`. If you set `ox:locale "en"` and were still seeing German notifications in 1.0.0, this was [#27](CHANGELOG.md).
+> **As of 1.0.4-alpha:** `server/nostr.lua` finally has the `or {}` fallback the other files always had. If `lib.load` couldn't find your locale file in 1.0.0–1.0.3, every Nostr event call would throw — now it falls back to the key name and keeps running. [#37](CHANGELOG.md).
 
 **Add a new language:**
 
@@ -286,6 +299,8 @@ exports['rde_aipd']:IsCrimeOnCooldown('MURDER')    -- boolean
 exports['rde_aipd']:GetCurrentArea()               -- string, number
 ```
 
+> **As of 1.0.4-alpha:** External resources calling `exports['rde_aipd']:LogCrime(...)` are now protected by the server-side dedup window. Calling it twice within 2s for the same player + crime_type will silently skip the second call instead of creating duplicate DB rows. If your script needs back-to-back identical crimes, wait at least 2s between calls.
+
 ### Server
 
 ```lua
@@ -305,14 +320,14 @@ rde_aipd/
 ├── fxmanifest.lua
 ├── config.lua
 ├── README.md
-├── CHANGELOG.md            ← NEW in 1.0.1-alpha
+├── CHANGELOG.md            ← Updated for 1.0.4-alpha
 ├── LICENSE
 ├── locales/
 │   ├── en.lua              ← English (default)
 │   └── de.lua              ← Deutsch
 ├── server/
 │   ├── main.lua            ← Core server logic, callbacks, jail timer
-│   ├── crime_witness_handler.lua  ← Witness-based 911 reporting
+│   ├── crime_witness_handler.lua  ← Witness-based 911 reporting + dedup cache
 │   └── nostr.lua           ← Nostr logging integration
 ├── client/
 │   ├── main.lua            ← AI police, wanted system, prison
@@ -343,6 +358,15 @@ Enable with `set police_debug "true"` in server.cfg, then in-game:
 | `listcrimes` | List all registered crime types |
 | `testjail [seconds]` | Jail yourself for testing |
 
+**Verify the 1.0.4 dedup fix:**
+
+```
+/testwitness ASSAULT       # 1st → "🚨 Crime reported WITH witness"
+/testwitness ASSAULT       # within 2s → "🚫 Dedup: ASSAULT ... skipped"
+# wait 3s
+/testwitness ASSAULT       # goes through again
+```
+
 ---
 
 ## 🛡 Security
@@ -353,18 +377,68 @@ Enable with `set police_debug "true"` in server.cfg, then in-game:
 - ACE permission support
 - Nostr logs are cryptographically signed — tamper-proof by design
 - Minimum jail time enforced server-side (anti 1s-jail exploit)
+- **NEW in 1.0.4:** Server-side dedup cache prevents race-condition / external-resource double-inserts in `crime_logs`
 
 ---
 
 ## 🐛 Troubleshooting
 
+### `attempt to call a nil value (global 'Debug')` in crime_witness_handler.lua
+
+You're on 1.0.1/1.0.2/1.0.3-alpha. The `Debug(...)` function was declared `local` in `server/main.lua`, and Lua can't cross-file local references — so the witness handler hit `nil` the moment any crime fired. Update to 1.0.4-alpha. Fixed in [#34](CHANGELOG.md).
+
+### Duplicate rows in `crime_logs` for the same crime + same second
+
+You're on 1.0.1/1.0.2/1.0.3-alpha. Two separate bugs were causing this:
+
+1. **Unwitnessed crimes** (`witnessed=false`): `police:crimeDetectedNoWitness` was double-inserting via both `table.insert(crimeHistory, ...)` AND `LogCrime()`. Fixed in [#35](CHANGELOG.md).
+2. **Witnessed crimes** (`witnessed=true`): No server-side dedup protected against client races, external-resource double-fires, or `/testwitness` spam. Fixed in [#38](CHANGELOG.md).
+
+Update to 1.0.4-alpha. To clean up legacy duplicates already in your DB:
+
+```sql
+-- Detect
+SELECT charid, crime_type,
+       JSON_EXTRACT(crime_data, '$.timestamp') AS ts,
+       COUNT(*) AS dups,
+       GROUP_CONCAT(id ORDER BY id) AS row_ids
+FROM crime_logs
+WHERE crime_data IS NOT NULL
+GROUP BY charid, crime_type, ts
+HAVING dups > 1;
+
+-- Delete (keeps earliest ID per pair)
+DELETE FROM crime_logs
+WHERE id IN (
+    SELECT id FROM (
+        SELECT id,
+               ROW_NUMBER() OVER (
+                   PARTITION BY charid, crime_type,
+                                JSON_EXTRACT(crime_data, '$.timestamp')
+                   ORDER BY id ASC
+               ) AS rn
+        FROM crime_logs
+        WHERE crime_data IS NOT NULL
+    ) t
+    WHERE rn > 1
+);
+```
+
+### `attempt to index a nil value (local 'Locale')` in nostr.lua
+
+You're on 1.0.1/1.0.2/1.0.3-alpha and `lib.load('locales.xx')` couldn't find your locale file — `Locale` was `nil` and `:format()` blew up. Fixed in [#37](CHANGELOG.md). Update to 1.0.4-alpha or temporarily set `Config.Nostr.enabled = false`.
+
+### Jail timer feels laggy / high CPU on jailed players
+
+You're on 1.0.1/1.0.2/1.0.3-alpha — `Prison.StartTimer` was running a `Wait(0)` 60fps loop just to redraw a second-precision countdown. Fixed in [#36](CHANGELOG.md). Update to 1.0.4-alpha; CPU per jailed player drops ~6×.
+
 ### `attempt to call a nil value` / resource refuses to start
 
-You're on 1.0.0-alpha. Update to 1.0.1-alpha — see [#30 in CHANGELOG.md](CHANGELOG.md). Seven `Debug(...)` calls were truncated in the 1.0.0-alpha tarball, and on stricter Lua parsers the entire file fails to load.
+You're on 1.0.0-alpha. Update to 1.0.1-alpha (or directly 1.0.4-alpha) — see [#30 in CHANGELOG.md](CHANGELOG.md). Seven `Debug(...)` calls were truncated in the 1.0.0-alpha tarball, and on stricter Lua parsers the entire file fails to load.
 
 ### Witnesses never call 911 / cops never spawn for non-fatal crimes
 
-You're on 1.0.0-alpha **and** your test character is in `Config.AdminGroups`. Either update to 1.0.1-alpha or test from a non-admin character. Fixed in [#28](CHANGELOG.md).
+You're on 1.0.0-alpha **and** your test character is in `Config.AdminGroups`. Either update or test from a non-admin character. Fixed in [#28](CHANGELOG.md).
 
 ### `file 'locales.en' not found`
 
@@ -372,7 +446,7 @@ The `locales/en.lua` file is missing or not listed in `fxmanifest.lua`. Make sur
 
 ### `set ox:locale "en"` ignored — still seeing German strings
 
-You're on 1.0.0-alpha. The locale loader was missing in three of four files. Update to 1.0.1-alpha. Fixed in [#27](CHANGELOG.md).
+You're on 1.0.0-alpha. The locale loader was missing in three of four files. Update. Fixed in [#27](CHANGELOG.md).
 
 ### Nostr logger not connecting
 
@@ -390,7 +464,7 @@ Install [rde_nostr_log](https://github.com/RedDragonElite/rde_nostr_log) and ens
 
 ### Jail timer not running after reconnect
 
-Fixed in v1.0.0-alpha and verified working in v1.0.1-alpha. If you're still seeing this:
+Verified working in v1.0.4-alpha. If you're still seeing this:
 
 1. Confirm `oxmysql` is running and connected
 2. Check that `police_records` table exists in your DB
@@ -429,6 +503,8 @@ PRs are always welcome.
 - ✅ Follow existing code style — ox_core, ox_lib, StateBags
 - ✅ Run `luac -p` on every modified `.lua` file before pushing — 1.0.0 shipped because nobody did
 - ✅ Test on a live server before PR
+- ✅ Every file has its own `local function Debug(...)` — never reach for another file's local logger (this is the bug that took down 1.0.1–1.0.3)
+- ✅ Server-side validation stays — `CrimeReportCache` pattern is non-negotiable for new crime events
 - ❌ No telemetry, no paywalls, no ESX/QBCore
 - ❌ Don't downgrade security — server-side validation stays
 - ❌ Don't hardcode user-facing strings — use `L('key')` and add the key to all locale files

@@ -382,14 +382,182 @@ Config.WitnessSystem = {
     checkInterval = 1000,
     reportDelay = 5000,
     cooldown = 300000,
-    
+
     areaMultipliers = {
         CITY_CENTER = 1.5,
         URBAN = 1.2,
         SUBURBAN = 1.0,
         RURAL = 0.6,
         WILDERNESS = 0.3
-    }
+    },
+
+    -- ────────────────────────────────────────────────────────────────────────
+    -- 🐉 RDE | NEXT-GEN REALISM (1.0.2-alpha)
+    -- ────────────────────────────────────────────────────────────────────────
+
+    -- Müssen NPC-Zeugen tatsächlich Sichtlinie zum Verbrechen haben?
+    -- Wenn true: Raycast pro Kandidat. Verhindert "Zeuge sieht durch Wand".
+    requireLineOfSight = true,
+
+    -- FOV-Cone in Grad (180 = sieht nur direkt geradeaus, 360 = sieht alles um sich).
+    -- 320° = NPC ist nur in einem 40°-Segment direkt hinter sich blind.
+    -- Realistisch: Mensch hört Schüsse/Geschehen auch peripher und dreht sich um.
+    -- Für strengeren Realismus: 280 / 220 / 180.
+    fieldOfView = 320.0,
+
+    -- ✅ FIX #41: Proximity-Grace — innerhalb dieser Distanz IGNORIEREN NPCs
+    -- den FOV-Check UND den LOS-Check. Schuss 3m hinter dir = du drehst dich um.
+    -- Wer so nah ist hört/spürt/sieht das immer.
+    proximityGraceDistance = 12.0,
+
+    -- ✅ FIX #42: Delayed Re-Scan — wenn beim ersten Scan kein Zeuge gefunden,
+    -- nochmal X Mal nach Y ms versuchen. Realistisch: NPCs hören den Schuss,
+    -- laufen zum Tatort, werden DANN Zeugen.
+    delayedRescans         = 2,
+    delayedRescanInterval  = 2500,
+
+    -- Sollen ANDERE Spieler automatisch als Zeugen zählen?
+    -- ⚠ Wenn true: Tochter/Crew/Freunde im Auto rufen die Cops auf dich. NICHT empfohlen.
+    -- Wenn false: Nur NPCs reagieren auto. Spieler können per /call911 (TODO) manuell melden.
+    playersAsAutoWitnesses = false,
+
+    -- Visuelle Handy-Animation für Zeugen: Prop spawnt in Hand, dial-anim, talk-anim.
+    -- Spieler kann am Prop+Anim erkennen wer der Caller ist und ihn unterbrechen.
+    visiblePhoneCall = true,
+    phonePropModel   = 'prop_npc_phone_02',
+    -- Temporärer Blip über dem Caller-Kopf solange der 911-Call läuft.
+    callerBlip = {
+        enabled = true,
+        sprite  = 280,    -- "Phone" Sprite — eindeutig erkennbar
+        color   = 1,      -- Rot
+        scale   = 0.8,
+        shortRange = false,
+        pulseAlpha = true,
+    },
+
+    -- Reaktionsverzögerung bevor der Zeuge anfängt zu wählen — gibt dem
+    -- Spieler ein Zeitfenster zum Eingreifen.
+    reactionMin = 1500,
+    reactionMax = 3500,
+    -- Anschließende Dial+Talk Dauer
+    callDurationMin = 4000,
+    callDurationMax = 7000,
+}
+
+-- ============================================================================
+-- VEHICLE CO-OCCUPANCY (1.0.2-alpha)
+-- ============================================================================
+--
+-- Wenn der Fahrer ein Verbrechen begeht und du als Beifahrer dabei bist,
+-- erbst du das Wanted Level — wie in GTA Online.
+--
+Config.VehicleCoOccupancy = {
+    enabled = true,
+    -- Soll der Beifahrer-Wanted-Level um 1 unter dem Fahrer liegen? (false = gleich)
+    passengerLowerByOne = false,
+    -- Werden Polizei-Jobs in der Crew ausgenommen? (Cop kann nicht selber wanted werden)
+    exemptPolice = true,
+    -- Werden Admins (laut AdminSettings.exemptFromWanted) ausgenommen?
+    exemptAdmins = true,
+}
+
+-- ============================================================================
+-- CRIME DETECTION REALISM (1.0.2-alpha)
+-- ============================================================================
+--
+-- Schraubt die "Stern für jeden Pups"-Trigger ab.
+--
+Config.CrimeRealism = {
+    -- SHOOTING wird NUR getriggert wenn ein Entity getroffen wurde
+    -- ODER der Spieler in eine Zielperson hineinzielt (free-aim auf entity).
+    -- Bloßes Abfeuern in die Luft ohne Ziel = kein Crime mehr.
+    shootingRequiresTarget = true,
+
+    -- SPEEDING wird NUR getriggert wenn ein Cop tatsächlich Sichtlinie hat.
+    -- Verhindert "ich raste durch die Wüste, plötzlich gesucht".
+    speedingRequiresCopLOS = true,
+    -- Toleranzaufschlag pro Area-Typ (km/h über Limit bis Crime greift).
+    speedingTolerance = {
+        CITY_CENTER = 25,
+        URBAN       = 30,
+        SUBURBAN    = 35,
+        RURAL       = 50,
+        WILDERNESS  = 70,
+    },
+
+    -- RECKLESS_DRIVING braucht Cop-Sichtlinie ODER NPC in unmittelbarer Nähe.
+    recklessRequiresWitness = true,
+
+    -- BRANDISHING — kleine Chance pro Sekunde wenn Waffe gezogen.
+    -- Wenn true: nur triggern wenn NPC oder Cop tatsächlich Sichtlinie hat.
+    brandishingRequiresLOS = true,
+}
+
+-- ============================================================================
+-- POLICE UNIT BLIPS (1.0.2-alpha)
+-- ============================================================================
+--
+-- Unterschiedliche Sprites für Cop-im-Auto vs. Cop-zu-Fuß.
+-- Wechselt live während des Spiels.
+--
+Config.PoliceUnitBlips = {
+    vehicle = {
+        sprite = 56,   -- "Cop" Sprite — passt für Streifenwagen
+        color  = 1,    -- Rot
+        scale  = 0.75,
+        pulse  = true,
+    },
+    foot = {
+        sprite = 1,    -- Standard-Punkt — kleiner, klar als Fußstreife
+        color  = 1,    -- Rot
+        scale  = 0.55,
+        pulse  = false,
+    },
+    helicopter = {
+        sprite = 422,  -- Helicopter Sprite
+        color  = 1,
+        scale  = 0.9,
+        pulse  = true,
+    },
+}
+
+-- ============================================================================
+-- COP DEATH HANDLING (1.0.2-alpha)
+-- ============================================================================
+--
+-- Verhindert das hässliche "Cop erschossen → Auto poof".
+-- Fahrzeug bleibt stehen, wird natürlich entfernt sobald weit weg oder Zeit X.
+--
+Config.CopDeathHandling = {
+    -- Cop-Auto bleibt nach Tod erhalten (statt Sofort-Despawn).
+    keepVehicleAfterDeath = true,
+    -- Wie lange darf das verlassene Auto in der Welt bleiben? (ms)
+    deadCopVehicleLifetime = 120000,  -- 2 Minuten
+    -- Distanz ab der das Auto frühzeitig despawnt wenn der Spieler weit weg ist.
+    deadCopCullDistance = 250.0,
+    -- Cop-Leiche bleibt ebenfalls erhalten (statt Sofort-DeleteEntity).
+    keepBodyAfterDeath = true,
+    bodyLifetime = 60000,  -- 1 Minute
+}
+
+-- ============================================================================
+-- POLICE DISENGAGE (1.0.2-alpha)
+-- ============================================================================
+--
+-- Wenn Wanted Level auf 0 fällt: Cops verfolgen NICHT mehr, fahren weg.
+-- Diese Sektion steuert wie sauber das aussieht.
+--
+Config.PoliceDisengage = {
+    -- Combat-Attributes hart zurücksetzen damit Cops nicht weiterballern
+    resetCombatAttributes = true,
+    -- Cops feindlich-Status entfernen (sie ignorieren den Spieler komplett)
+    clearHostility = true,
+    -- Siren abschalten, Lichter aus
+    silentDeparture = true,
+    -- Maximale Wartezeit auf "Cop steigt ein und fährt weg" bevor wir den Despawn forcieren
+    maxDepartureWait = 25000,
+    -- Distanz die das Auto vom Spieler wegfahren muss
+    departureDistance = 200.0,
 }
 
 -- ============================================================================

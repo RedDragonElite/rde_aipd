@@ -233,4 +233,18 @@ return {
     arrest_cancelled            = 'Verhaftung abgebrochen',
     connection_issue            = 'Verbindungsproblem — bitte neu verbinden falls hängend',
 
+    -- =========================================================================
+    --  CLIENT — NEXT-GEN REALISM (NEU IN 1.0.2-alpha)
+    -- =========================================================================
+
+    -- Co-Occupant: Spieler erbt Wanted Level weil Fahrer ein Crime begangen hat
+    -- %d = neuer Level
+    cooccupant_wanted_inherited = '🚗 Du sitzt im Fluchtfahrzeug! Fahndung: %d ⭐',
+    -- Co-Occupant: Du hast den Crime begangen, dein Beifahrer bekommt auch was ab
+    cooccupant_passenger_wanted = '⚠ Dein Beifahrer erbt deine Fahndung',
+    -- Zeuge tippt gerade
+    witness_dialing             = '📱 Ein Zeuge wählt 911...',
+    -- Cop hat aufgehört zu verfolgen
+    cops_disengaging            = '🌫 Die Polizei stellt die Verfolgung ein',
+
 }

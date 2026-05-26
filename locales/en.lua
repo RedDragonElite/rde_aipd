@@ -242,4 +242,18 @@ return {
     arrest_cancelled            = 'Arrest cancelled',
     connection_issue            = 'Connection issue — please rejoin if stuck',
 
+    -- =========================================================================
+    --  CLIENT — NEXT-GEN REALISM (NEW IN 1.0.2-alpha)
+    -- =========================================================================
+
+    -- Co-occupant: passenger inherits wanted because driver committed a crime
+    -- %d = new level
+    cooccupant_wanted_inherited = '🚗 You are in the getaway vehicle! Wanted: %d ⭐',
+    -- Co-occupant: you committed the crime, your passenger gets pulled in too
+    cooccupant_passenger_wanted = '⚠ Your passenger inherits your wanted level',
+    -- Witness is currently dialing
+    witness_dialing             = '📱 A witness is dialing 911...',
+    -- Cops have given up the chase
+    cops_disengaging            = '🌫 Police are disengaging from pursuit',
+
 }

@@ -181,56 +181,157 @@ end
 -- WITNESS SYSTEM
 -- ════════════════════════════════════════════════════════════════════════════════
 
-local function GetNearbyWitnesses(coords, radius)
+-- ✅ FIX #31 (1.0.2-alpha): NPC sieht den Crime nur wenn er Sichtlinie hat UND
+-- der Crime im Sichtfeld liegt. Vorher: jeder NPC im Radius war "Zeuge" — selbst
+-- der NPC der hinter ner Wand stand oder dem Spieler den Rücken zukehrte.
+--
+-- ✅ FIX #40 (1.0.2-alpha hotfix): FOV-Mathe komplett umgestellt auf Forward-Vector
+-- Dot-Product. Vorher: atan2+90 Hack der bei "Crime nördlich von Zeuge" ein angle
+-- von 180 statt 0 lieferte → ALLE NPCs die nordwärts schauten wurden rejected.
+-- Praktischer Effekt: man fuhr durch Vinewood vorbei an NPCs auf dem Gehweg
+-- (die alle nordwärts liefen) und KEINER war Zeuge.
+--
+-- Außerdem: Default FOV 220° war zu strikt für Drive-By Szenarien.
+-- Jetzt 280° default (nur direkt hinter dem NPC = blind), kann aber per Config
+-- runtergeschraubt werden für strengere Realismus-Setups.
+local witnessRejectStats = {fov = 0, los = 0, lastReset = 0}
+
+local function WitnessCanSee(witnessPed, crimeCoords)
+    local cfg = Config.WitnessSystem
+    if not cfg or not cfg.requireLineOfSight then return true end
+    if not DoesEntityExist(witnessPed) then return false end
+
+    local witnessCoords = GetEntityCoords(witnessPed)
+
+    -- ──── (0) PROXIMITY GRACE — sehr nahe NPCs hören & spüren immer ───────────
+    -- ✅ FIX #41 (1.0.2-alpha hotfix2): Innerhalb von X Meter ignoriert man den
+    -- FOV-Check komplett. Schuss 3m hinter dir = Mensch dreht sich um. Punkt.
+    -- Vorher: NPC der zufällig von dir wegschaute war NICHT-Zeuge auch wenn er
+    -- direkt neben dir stand → unrealistisches Gameplay.
+    local grace = cfg.proximityGraceDistance or 12.0
+    local dx    = crimeCoords.x - witnessCoords.x
+    local dy    = crimeCoords.y - witnessCoords.y
+    local dz    = crimeCoords.z - witnessCoords.z
+    local dist3D = math.sqrt(dx*dx + dy*dy + dz*dz)
+    local closeProximity = dist3D <= grace
+
+    -- ──── (a) FIELD OF VIEW — Forward-Vector Dot-Product ──────────────────────
+    local fov = cfg.fieldOfView or 320.0
+    if fov < 359.0 and not closeProximity then
+        local fwd = GetEntityForwardVector(witnessPed)
+        local dist2D = math.sqrt(dx*dx + dy*dy)
+        if dist2D > 0.01 then
+            local dot = (fwd.x * dx + fwd.y * dy) / dist2D
+            local cosHalfFov = math.cos(math.rad(fov / 2.0))
+            if dot < cosHalfFov then
+                witnessRejectStats.fov = witnessRejectStats.fov + 1
+                return false
+            end
+        end
+    end
+
+    -- ──── (b) LINE OF SIGHT — World-Geometry-Only Raycast ─────────────────────
+    -- flag = 1 → nur World/Buildings/Terrain blockt. Peds, Vehicles, Animals,
+    -- Objects NICHT — dadurch blockt das eigene Auto des Spielers die Sichtlinie
+    -- zum Spieler-Ped NICHT (wäre sonst false-negative bei jedem Drive-By).
+    -- Synchroner Probe damit das Result IM SELBEN FRAME steht und nicht erst
+    -- nächsten Tick als "noch nicht fertig" zurückkommt.
+    -- ✅ FIX #41: Bei Proximity-Grace (< X m) skippen wir auch den LOS-Check —
+    -- so nah dran "hört" der NPC das Crime auch durch eine dünne Wand.
+    if not closeProximity then
+        local ray = StartExpensiveSynchronousShapeTestLosProbe(
+            witnessCoords.x, witnessCoords.y, witnessCoords.z + 1.0,
+            crimeCoords.x,   crimeCoords.y,   crimeCoords.z   + 1.0,
+            1, witnessPed, 0
+        )
+        local _, hit = GetShapeTestResult(ray)
+        if hit then
+            witnessRejectStats.los = witnessRejectStats.los + 1
+            return false
+        end
+    end
+
+    return true
+end
+
+local function GetNearbyWitnesses(coords, radius, excludePed)
+    local cfg         = Config.WitnessSystem or {}
     local areaType    = crimeState.currentArea
     local phoneChance = PhoneChanceByArea[areaType] or 0.85
 
     local result = {npcs = {}, players = {}}
 
-    -- NPC Zeugen
+    -- ✅ FIX #40: Reset & report Rejection-Stats pro LogCrime-Call
+    local startFov, startLos = witnessRejectStats.fov, witnessRejectStats.los
+
+    -- ✅ FIX #44 (1.0.2-alpha hotfix3): Opfer aus Zeugen-Liste rauswerfen.
+    -- Der gejackte Fahrer, der geprügelte NPC, der überfahrene NPC ist KEIN Zeuge.
+    -- Vorher: das Opfer wurde als nächster Zeuge gepickt, dann ragdollte/starb es,
+    -- → "Witness eliminated" Notification obwohl niemand was gemacht hat.
+    local excludeId = excludePed and DoesEntityExist(excludePed) and excludePed or nil
+
+    -- NPC-Zeugen
     local peds = GetGamePool('CPed')
     for _, ped in ipairs(peds) do
         if DoesEntityExist(ped)
+            and ped ~= excludeId
             and not IsPedAPlayer(ped)
             and not IsPedDeadOrDying(ped, true)
         then
-            local pedCoords = GetEntityCoords(ped)
-            local distance  = #(coords - pedCoords)
-            if distance <= radius then
-                local pedType = GetPedType(ped)
-                -- Keine Polizisten (6), Tiere (27/28)
-                if pedType ~= 6 and pedType ~= 27 and pedType ~= 28 then
-                    result.npcs[#result.npcs + 1] = {
-                        ped          = ped,
-                        distance     = distance,
-                        hasPhone     = math.random() < phoneChance,
-                        awareness    = math.random(60, 100) / 100,
-                        callDuration = math.random(CallDuration.min, CallDuration.max),
-                    }
+            local pedType = GetPedType(ped)
+            -- Keine Polizisten (6), Tiere (27/28)
+            if pedType ~= 6 and pedType ~= 27 and pedType ~= 28 then
+                local pedCoords = GetEntityCoords(ped)
+                local distance  = #(coords - pedCoords)
+                if distance <= radius then
+                    -- ✅ FIX #31: LOS + FOV Prüfung
+                    if WitnessCanSee(ped, coords) then
+                        result.npcs[#result.npcs + 1] = {
+                            ped          = ped,
+                            distance     = distance,
+                            hasPhone     = math.random() < phoneChance,
+                            awareness    = math.random(60, 100) / 100,
+                            callDuration = math.random(
+                                cfg.callDurationMin or CallDuration.min,
+                                cfg.callDurationMax or CallDuration.max
+                            ),
+                        }
+                    end
                 end
             end
         end
     end
 
-    -- Spieler als Zeugen
-    for _, pid in ipairs(GetActivePlayers()) do
-        if pid ~= PlayerId() then
-            local targetPed = GetPlayerPed(pid)
-            if DoesEntityExist(targetPed) and not IsPedDeadOrDying(targetPed, true) then
-                local dist = #(coords - GetEntityCoords(targetPed))
-                if dist <= radius then
-                    result.players[#result.players + 1] = {
-                        player   = pid,
-                        distance = dist,
-                        hasPhone = true,
-                    }
+    -- ✅ FIX #32 (1.0.2-alpha): Andere Spieler sind NICHT mehr automatisch Zeugen.
+    -- Vorher: Tochter/Crew/Freunde standen in der Liste → wurden in FindBestCaller
+    -- als Fallback genutzt → riefen die Cops auf den eigenen Daddy/Bruder.
+    -- Jetzt: Nur wenn Config.WitnessSystem.playersAsAutoWitnesses = true (default false).
+    -- Für "Spieler ruft manuell 911" → kommt später als /call911 Command, separat.
+    if cfg.playersAsAutoWitnesses then
+        for _, pid in ipairs(GetActivePlayers()) do
+            if pid ~= PlayerId() then
+                local targetPed = GetPlayerPed(pid)
+                if DoesEntityExist(targetPed) and not IsPedDeadOrDying(targetPed, true) then
+                    local dist = #(coords - GetEntityCoords(targetPed))
+                    if dist <= radius and WitnessCanSee(targetPed, coords) then
+                        result.players[#result.players + 1] = {
+                            player   = pid,
+                            distance = dist,
+                            hasPhone = true,
+                        }
+                    end
                 end
             end
         end
     end
 
-    Debug(('Witnesses: %d NPC, %d Player | Phone chance: %.0f%%'):format(
-        #result.npcs, #result.players, phoneChance * 100
+    local fovRej = witnessRejectStats.fov - startFov
+    local losRej = witnessRejectStats.los - startLos
+    Debug(('Witnesses: %d NPC, %d Player | Phone chance: %.0f%% | LOS: %s | FOV: %.0f° | Rejected: %d FOV / %d LOS'):format(
+        #result.npcs, #result.players, phoneChance * 100,
+        cfg.requireLineOfSight and 'on' or 'off',
+        cfg.fieldOfView or 360.0,
+        fovRej, losRej
     ))
     return result
 end
@@ -270,34 +371,122 @@ local function FindBestCaller(witnesses, crimeCoords)
 end
 
 -- ════════════════════════════════════════════════════════════════════════════════
--- 911-CALL SEQUENZ
+-- VEHICLE CO-OCCUPANCY (1.0.2-alpha)
+-- ════════════════════════════════════════════════════════════════════════════════
+--
+-- Wenn der Crime in einem Fahrzeug passiert, sammle die Server-IDs aller
+-- Mitfahrer ein. Der Server propagiert dann den Wanted Level auf sie.
+--
+local function GetVehicleCoOccupantServerIds()
+    if not Config.VehicleCoOccupancy or not Config.VehicleCoOccupancy.enabled then return {} end
+    if not cache.inVehicle or not DoesEntityExist(cache.vehicle) then return {} end
+
+    local ids   = {}
+    local maxSeats = GetVehicleModelNumberOfSeats(GetEntityModel(cache.vehicle))
+    -- Seats: -1 = driver, 0..n = passengers
+    for seat = -1, maxSeats - 2 do
+        local seatPed = GetPedInVehicleSeat(cache.vehicle, seat)
+        if seatPed and seatPed ~= 0 and seatPed ~= cache.ped
+            and DoesEntityExist(seatPed) and IsPedAPlayer(seatPed)
+        then
+            local otherPlayer = NetworkGetPlayerIndexFromPed(seatPed)
+            if otherPlayer ~= -1 then
+                local serverId = GetPlayerServerId(otherPlayer)
+                if serverId and serverId > 0 then
+                    ids[#ids + 1] = serverId
+                end
+            end
+        end
+    end
+    return ids
+end
+
+-- ════════════════════════════════════════════════════════════════════════════════
+-- WITNESS VISUAL TEARDOWN — sicheres Cleanup für Phone-Prop + Blip
+-- ════════════════════════════════════════════════════════════════════════════════
+local function TeardownWitnessVisuals(visuals)
+    if not visuals then return end
+    if visuals.phone and DoesEntityExist(visuals.phone) then
+        DetachEntity(visuals.phone, true, true)
+        DeleteObject(visuals.phone)
+    end
+    if visuals.blip and DoesBlipExist(visuals.blip) then
+        RemoveBlip(visuals.blip)
+    end
+    if visuals.pulseThreadId then
+        visuals.pulseStop = true
+    end
+    if visuals.callerPed and DoesEntityExist(visuals.callerPed) then
+        ClearPedTasks(visuals.callerPed)
+        -- ✅ FIX #45 (1.0.2-alpha hotfix4): Mission-Entity-Lock wieder lösen
+        -- damit die Engine den NPC wieder normal streamen/despawnen kann.
+        -- Sonst hätten wir nach jedem Call leichende Geist-NPCs in der Welt.
+        SetBlockingOfNonTemporaryEvents(visuals.callerPed, false)
+        SetEntityAsMissionEntity(visuals.callerPed, false, true)
+        SetPedAsNoLongerNeeded(visuals.callerPed)
+    end
+end
+
+-- ════════════════════════════════════════════════════════════════════════════════
+-- 911-CALL SEQUENZ — Sichtbar, unterbrechbar, immersiv
 -- ════════════════════════════════════════════════════════════════════════════════
 --
 -- DAS IST DAS HERZSTÜCK:
--- Zeuge führt erst den kompletten 911-Call durch,
--- DANN wird das Verbrechen an den Server gemeldet.
--- Wird der Zeuge unterbrochen → kein Wanted Level.
+-- 1. Zeuge schaut den Spieler an (Reaktion)
+-- 2. Spawnt sichtbares Handy in der Hand des Zeugen
+-- 3. Setzt Blip über den Kopf des Zeugen
+-- 4. Spielt Dial-Anim, dann Talk-Anim
+-- 5. Erst nach komplettem Call → Wanted Level
+-- 6. Wird der Zeuge erledigt → kompletter Teardown, kein Wanted Level
 --
 -- ════════════════════════════════════════════════════════════════════════════════
 
 local function Execute911CallSequence(caller, crimeType, crimeCoords, crimeLevel, witnessCount)
+    local cfg             = Config.WitnessSystem or {}
     local isPlayerWitness = caller.player ~= nil
-    local callerPed       = not isPlayerWitness and caller.ped or nil
-    local callDuration    = caller.callDuration or math.random(CallDuration.min, CallDuration.max)
+    local callerPed       = (not isPlayerWitness) and caller.ped or nil
+    local callDuration    = caller.callDuration or math.random(
+        cfg.callDurationMin or 4000,
+        cfg.callDurationMax or 7000
+    )
+    local reactionDelay   = math.random(
+        cfg.reactionMin or 1500,
+        cfg.reactionMax or 3500
+    )
+
+    -- Co-Occupant Server-IDs JETZT sammeln (bevor wir möglicherweise aussteigen)
+    local coOccupants = GetVehicleCoOccupantServerIds()
+
+    local visuals = {
+        phone         = nil,
+        blip          = nil,
+        callerPed     = callerPed,
+        pulseStop     = false,
+    }
 
     CreateThread(function()
-        -- Reaktionsverzögerung (Zeuge schaut erstmal)
-        local reactionDelay = math.random(1500, 3500)
+        -- ✅ FIX #45 (1.0.2-alpha hotfix4): Caller gegen Engine-Despawn pinnen.
+        -- Vorher: Engine konnte den Witness-NPC mitten im Call wegcleanen
+        -- (Population-Limit, Streaming, neue NPCs spawnen → alte fliegen raus).
+        -- → DoesEntityExist = false → "Witness eliminated" obwohl niemand was tat.
+        -- Jetzt: NPC ist für die Dauer des Calls mission-locked, kann nicht despawnen.
+        -- TeardownWitnessVisuals löst den Lock am Ende wieder.
+        if callerPed and DoesEntityExist(callerPed) then
+            SetEntityAsMissionEntity(callerPed, true, true)
+            SetBlockingOfNonTemporaryEvents(callerPed, true)
+            SetPedKeepTask(callerPed, true)
+        end
 
+        -- ──────── 1. REAKTIONSPHASE — Zeuge schaut den Spieler an ─────────────
         if callerPed then
             TaskLookAtEntity(callerPed, cache.ped, callDuration + reactionDelay + 2000, 2048, 3)
         end
 
         Wait(reactionDelay)
 
-        -- Prüfen ob Zeuge noch lebt
         if callerPed and (not DoesEntityExist(callerPed) or IsPedDeadOrDying(callerPed, true)) then
             Debug('Zeuge vor dem Call gestorben')
+            TeardownWitnessVisuals(visuals)
             TriggerServerEvent('police:crimeDetectedNoWitness', crimeType, crimeCoords)
             lib.notify({
                 type        = 'success',
@@ -307,28 +496,83 @@ local function Execute911CallSequence(caller, crimeType, crimeCoords, crimeLevel
             return
         end
 
-        -- Telefon-Animation starten
-        if callerPed then
-            local animDict = 'cellphone@call_listen_base'
-            RequestAnimDict(animDict)
+        -- ──────── 2. HANDY-PROP SPAWNEN (nur für NPCs) ─────────────────────────
+        if callerPed and cfg.visiblePhoneCall ~= false then
+            local phoneModel = joaat(cfg.phonePropModel or 'prop_npc_phone_02')
+            RequestModel(phoneModel)
             local timeout = 0
-            while not HasAnimDictLoaded(animDict) and timeout < 100 do
-                Wait(10)
-                timeout = timeout + 1
+            while not HasModelLoaded(phoneModel) and timeout < 60 do
+                Wait(20); timeout = timeout + 1
             end
-            if HasAnimDictLoaded(animDict) then
-                TaskPlayAnim(callerPed, animDict, 'cellphone_call_listen_base',
-                    8.0, -8.0, -1, 49, 0, false, false, false)
+            if HasModelLoaded(phoneModel) then
+                local pedCoords = GetEntityCoords(callerPed)
+                local phoneObj  = CreateObject(phoneModel, pedCoords.x, pedCoords.y, pedCoords.z + 0.2, true, true, false)
+                if DoesEntityExist(phoneObj) then
+                    -- Bone 28422 = SKEL_R_Hand (rechte Hand)
+                    AttachEntityToEntity(phoneObj, callerPed, GetPedBoneIndex(callerPed, 28422),
+                        0.0, 0.0, 0.025,   -- offset
+                        10.0, 160.0, 0.0,  -- rotation (Handy aufrecht in der Hand)
+                        true, true, false, true, 1, true)
+                    visuals.phone = phoneObj
+                end
+                SetModelAsNoLongerNeeded(phoneModel)
             end
         end
 
-        -- Warte die gesamte Call-Dauer
-        -- In dieser Zeit kann der Spieler den Zeugen unterbrechen!
-        Wait(callDuration)
+        -- ──────── 3. CALLER-BLIP über Kopf des Zeugen ──────────────────────────
+        if callerPed and cfg.callerBlip and cfg.callerBlip.enabled then
+            local b = AddBlipForEntity(callerPed)
+            if DoesBlipExist(b) then
+                SetBlipSprite(b,    cfg.callerBlip.sprite or 280)
+                SetBlipColour(b,    cfg.callerBlip.color  or 1)
+                SetBlipScale(b,     cfg.callerBlip.scale  or 0.8)
+                SetBlipAsShortRange(b, cfg.callerBlip.shortRange or false)
+                BeginTextCommandSetBlipName("STRING")
+                AddTextComponentString("📞 Zeuge ruft 911")
+                EndTextCommandSetBlipName(b)
+                visuals.blip = b
 
-        -- Nochmal prüfen ob Zeuge überlebt hat
+                -- Pulse-Animation
+                if cfg.callerBlip.pulseAlpha then
+                    CreateThread(function()
+                        while not visuals.pulseStop and DoesBlipExist(b) do
+                            SetBlipAlpha(b, 255); Wait(400)
+                            SetBlipAlpha(b, 120); Wait(400)
+                        end
+                    end)
+                end
+            end
+        end
+
+        -- Frühe Spieler-Notification — gibt ihm die Chance einzugreifen
+        lib.notify({
+            type        = 'warning',
+            description = L('witness_dialing'),
+            duration    = 2500,
+            icon        = 'phone',
+        })
+
+        -- ──────── 4. DIAL-ANIM (kurzes Tippen) ─────────────────────────────────
+        if callerPed and DoesEntityExist(callerPed) then
+            local dialDict = 'cellphone@'
+            RequestAnimDict(dialDict)
+            local timeout = 0
+            while not HasAnimDictLoaded(dialDict) and timeout < 100 do
+                Wait(10); timeout = timeout + 1
+            end
+            if HasAnimDictLoaded(dialDict) then
+                -- "cellphone_text_in" — kurze Tipp-Animation
+                TaskPlayAnim(callerPed, dialDict, 'cellphone_text_in',
+                    8.0, -8.0, 1200, 50, 0, false, false, false)
+            end
+        end
+
+        Wait(1200)
+
+        -- Check #2 — während des Dialvorgangs
         if callerPed and (not DoesEntityExist(callerPed) or IsPedDeadOrDying(callerPed, true)) then
-            Debug('Zeuge WÄHREND des Calls gestorben → kein Wanted Level')
+            Debug('Zeuge WÄHREND des Wählens gestorben')
+            TeardownWitnessVisuals(visuals)
             TriggerServerEvent('police:crimeDetectedNoWitness', crimeType, crimeCoords)
             lib.notify({
                 type        = 'success',
@@ -338,18 +582,47 @@ local function Execute911CallSequence(caller, crimeType, crimeCoords, crimeLevel
             return
         end
 
-        -- ✅ Call erfolgreich abgeschlossen → jetzt erst Wanted Level
+        -- ──────── 5. TALK-ANIM (Handy am Ohr) ─────────────────────────────────
+        if callerPed and DoesEntityExist(callerPed) then
+            local talkDict = 'cellphone@'
+            if HasAnimDictLoaded(talkDict) then
+                TaskPlayAnim(callerPed, talkDict, 'cellphone_call_listen_base',
+                    8.0, -8.0, -1, 49, 0, false, false, false)
+            end
+        end
+
+        -- Warte die Talk-Dauer ab — Spieler kann immer noch eingreifen!
+        local remaining = callDuration - 1200
+        if remaining > 0 then Wait(remaining) end
+
+        -- ──────── 6. FINAL CHECK — Überlebt der Zeuge den Call? ───────────────
+        if callerPed and (not DoesEntityExist(callerPed) or IsPedDeadOrDying(callerPed, true)) then
+            Debug('Zeuge WÄHREND des Calls gestorben → kein Wanted Level')
+            TeardownWitnessVisuals(visuals)
+            TriggerServerEvent('police:crimeDetectedNoWitness', crimeType, crimeCoords)
+            lib.notify({
+                type        = 'success',
+                description = L('witness_killed_during_call'),
+                duration    = 3000,
+            })
+            return
+        end
+
+        -- ──────── 7. CALL ERFOLGREICH — Crime an Server melden ────────────────
         Debug(('911-Call abgeschlossen! Melde Verbrechen: %s'):format(crimeType))
 
         TriggerServerEvent('police:reportCrime', {
-            type         = crimeType,
-            coords       = crimeCoords,
-            level        = crimeLevel,
-            witnessCount = witnessCount,
-            crimeTime    = GetGameTimer(),
+            type          = crimeType,
+            coords        = crimeCoords,
+            level         = crimeLevel,
+            witnessCount  = witnessCount,
+            crimeTime     = GetGameTimer(),
             callCompleted = true,
-            witness      = {
-                distance      = caller.distance or 0,
+            -- ✅ FIX #33 (1.0.2-alpha): Co-Occupants mitliefern damit Server
+            -- auch die Beifahrer als wanted markieren kann.
+            coOccupants   = coOccupants,
+            witness       = {
+                distance       = caller.distance or 0,
                 isPlayerCaller = isPlayerWitness,
             },
         })
@@ -360,6 +633,11 @@ local function Execute911CallSequence(caller, crimeType, crimeCoords, crimeLevel
             crimeState.currentArea,
             true
         )
+
+        -- ──────── 8. CLEANUP — Phone+Blip nach kurzer Auslaufzeit weg ─────────
+        SetTimeout(2000, function()
+            TeardownWitnessVisuals(visuals)
+        end)
     end)
 end
 
@@ -367,7 +645,7 @@ end
 -- LOG CRIME — Hauptfunktion
 -- ════════════════════════════════════════════════════════════════════════════════
 
-function LogCrime(crimeType, coords, force)
+function LogCrime(crimeType, coords, force, victimPed)
     if not crimeState.systemInitialized then
         Debug('System noch nicht initialisiert')
         return false
@@ -424,7 +702,7 @@ function LogCrime(crimeType, coords, force)
         1.0
     )
 
-    local witnesses = GetNearbyWitnesses(crimeCoords, radius)
+    local witnesses = GetNearbyWitnesses(crimeCoords, radius, victimPed)
     local withPhone = 0
     for _, w in ipairs(witnesses.npcs) do
         if w.hasPhone then withPhone = withPhone + 1 end
@@ -434,17 +712,60 @@ function LogCrime(crimeType, coords, force)
     ))
     local caller    = FindBestCaller(witnesses, crimeCoords)
 
+    -- ✅ FIX #42 (1.0.2-alpha hotfix2): Delayed Re-Scan.
+    -- Wenn beim ersten Scan kein Zeuge da war, scannen wir nochmal nach 2-3s.
+    -- Realistisches Szenario: Schuss fällt → NPCs hören das → laufen zum Tatort →
+    -- werden JETZT Zeugen. Vorher: "kein Zeuge im exakten Moment des Crimes" =
+    -- never wanted. Jetzt: NPCs die nach der Tat ankommen werden erfasst.
     if not caller then
-        -- Kein Zeuge → kein Wanted Level
-        Debug(('%s: kein Zeuge mit Telefon'):format(crimeType))
-        TriggerServerEvent('police:crimeDetectedNoWitness', crimeType, crimeCoords)
-        TriggerServerEvent('police:nostr:crime', crimeType, crimeState.currentArea, false)
+        local rescans  = Config.WitnessSystem and Config.WitnessSystem.delayedRescans or 2
+        local rescanMs = Config.WitnessSystem and Config.WitnessSystem.delayedRescanInterval or 2500
+        if rescans > 0 then
+            CreateThread(function()
+                for attempt = 1, rescans do
+                    Wait(rescanMs)
+                    -- Crime ist veraltet wenn der Spieler tot/verhaftet ist oder schon Wanted
+                    if WantedSystem and WantedSystem.isArrested then return end
+                    if WantedSystem and WantedSystem.isDead     then return end
+                    local nowWanted = WantedSystem and WantedSystem.level or 0
+                    if nowWanted > 0 and nowWanted >= crimeLevel then return end
 
-        lib.notify({
-            type        = 'success',
-            description = L('no_witnesses_nearby'),
-            duration    = 2500,
-        })
+                    -- Re-Scan mit gleichen Coords (Tatort-Position)
+                    local w2 = GetNearbyWitnesses(crimeCoords, radius, victimPed)
+                    local c2 = FindBestCaller(w2, crimeCoords)
+                    if c2 then
+                        Debug(('%s: Re-Scan #%d hat Zeuge gefunden!'):format(crimeType, attempt))
+                        local tw = #w2.npcs + #w2.players
+                        lib.notify({
+                            type        = 'warning',
+                            description = L('witness_spotted_you', crimeConfig.description or crimeType),
+                            duration    = 3000,
+                        })
+                        Execute911CallSequence(c2, crimeType, crimeCoords, crimeLevel, tw)
+                        return
+                    end
+                    Debug(('%s: Re-Scan #%d/%d auch leer'):format(crimeType, attempt, rescans))
+                end
+                -- Alle Re-Scans leer → JETZT erst das "No witnesses" Event/Notif
+                TriggerServerEvent('police:crimeDetectedNoWitness', crimeType, crimeCoords)
+                TriggerServerEvent('police:nostr:crime', crimeType, crimeState.currentArea, false)
+                lib.notify({
+                    type        = 'success',
+                    description = L('no_witnesses_nearby'),
+                    duration    = 2500,
+                })
+            end)
+        else
+            -- Re-Scans deaktiviert → altes Verhalten
+            TriggerServerEvent('police:crimeDetectedNoWitness', crimeType, crimeCoords)
+            TriggerServerEvent('police:nostr:crime', crimeType, crimeState.currentArea, false)
+            lib.notify({
+                type        = 'success',
+                description = L('no_witnesses_nearby'),
+                duration    = 2500,
+            })
+        end
+        Debug(('%s: kein Zeuge im ersten Scan, Re-Scan-Loop gestartet'):format(crimeType))
         return false
     end
 
@@ -483,6 +804,16 @@ local function StartWantedDecaySystem()
         while true do
             Wait(decayConfig.checkInterval)
             if not decayConfig.enabled then goto continue end
+
+            -- BUG FIX: Do NOT decay while arrested/surrendered.
+            -- Race condition: GetWantedLevel() returns >0 in the ~6500ms window between
+            -- TriggerServerEvent('police:syncArrest') and lib.callback.await('police:arrestPlayer').
+            -- If decay fires here, server state.level hits 0 before arrestPlayer callback
+            -- arrives → server rejects arrest (level<=0 && !isJailed) → no jail teleport.
+            if WantedSystem and (WantedSystem.isArrested or WantedSystem.isSurrendered) then
+                crimeState.decayActive = false
+                goto continue
+            end
 
             local wantedLevel = GetWantedLevel()
             if wantedLevel > 0 then
@@ -554,16 +885,16 @@ AddEventHandler('gameEventTriggered', function(name, args)
 
     if isFatal == 1 or IsEntityDead(victim) then
         if victimType == 6 then
-            LogCrime('MURDER_COP', nil, true)
+            LogCrime('MURDER_COP', nil, true, victim)
             TriggerServerEvent('police:nostr:copKilled')
         elseif IsPedAPlayer(victim) or (victimType ~= 27 and victimType ~= 28) then
-            LogCrime('MURDER', nil, true)
+            LogCrime('MURDER', nil, true, victim)
         end
     else
         if victimType == 6 then
-            LogCrime('ASSAULT_COP')
+            LogCrime('ASSAULT_COP', nil, false, victim)
         elseif IsPedAPlayer(victim) or (victimType ~= 27 and victimType ~= 28) then
-            LogCrime('ASSAULT')
+            LogCrime('ASSAULT', nil, false, victim)
         end
     end
 end)
@@ -601,13 +932,56 @@ local function StartCrimeDetectionThread()
     end)
 
     -- ── SHOOTING — Schuss abgefeuert ─────────────────────────────────────────
+    -- ✅ FIX #34 (1.0.2-alpha): Nur triggern wenn TATSÄCHLICH ein Ziel im Spiel ist.
+    -- Vorher: jeder Schuss in die Luft → SHOOTING → 0.9 witnessChance → Wanted Level.
+    -- Jetzt: muss aimen auf Entity ODER es muss ein Treffer passiert sein.
     CreateThread(function()
         while true do
             Wait(100)
             if not crimeState.systemInitialized then goto nextShoot end
 
             if IsPedShooting(cache.ped) and not IsCrimeOnCooldown('SHOOTING') then
-                LogCrime('SHOOTING')
+                local requiresTarget = Config.CrimeRealism and Config.CrimeRealism.shootingRequiresTarget
+                local hasTarget = false
+
+                if requiresTarget then
+                    -- (a) Free-aim auf eine Entity?
+                    local aiming, aimEntity = GetEntityPlayerIsFreeAimingAt(PlayerId())
+                    if aiming and aimEntity and aimEntity ~= 0 and DoesEntityExist(aimEntity) then
+                        hasTarget = true
+                    end
+                    -- (b) Auto-Lock-Ziel? (Konsolen-Style)
+                    if not hasTarget then
+                        local lockTarget = GetPlayerTargetEntity(PlayerId())
+                        if lockTarget and lockTarget ~= 0 then hasTarget = true end
+                    end
+                    -- (c) Treffer in den letzten paar Frames?
+                    if not hasTarget and HasEntityBeenDamagedByEntity then
+                        -- gameEventTriggered handelt damage events bereits separat —
+                        -- aber wenn eine Entity in 30m getroffen wurde nehmen wir das mit
+                        if IsBulletInArea(cache.coords.x, cache.coords.y, cache.coords.z, 25.0, true) then
+                            -- Prüfen ob ein NPC in der Nähe getroffen wurde
+                            local peds = GetGamePool('CPed')
+                            for _, p in ipairs(peds) do
+                                if p ~= cache.ped and HasEntityBeenDamagedByEntity(p, cache.ped, 1) then
+                                    hasTarget = true
+                                    ClearEntityLastDamageEntity(p)
+                                    break
+                                end
+                            end
+                        end
+                    end
+                else
+                    hasTarget = true  -- Old behavior wenn Config aus
+                end
+
+                if hasTarget then
+                    LogCrime('SHOOTING')
+                else
+                    -- Cooldown trotzdem setzen damit wir nicht jeden Frame neu prüfen
+                    crimeState.cooldowns['SHOOTING'] = GetGameTimer() - (Config.CrimeTypes.SHOOTING.cooldown - 2000)
+                    Debug('SHOOTING ignoriert: kein Ziel (Schuss in die Luft)')
+                end
             end
 
             ::nextShoot::
@@ -615,6 +989,8 @@ local function StartCrimeDetectionThread()
     end)
 
     -- ── BRANDISHING — Waffe gezogen ──────────────────────────────────────────
+    -- ✅ FIX #36 (1.0.2-alpha): Nur triggern wenn ein NPC/Cop dich tatsächlich sieht.
+    -- Vorher: rein zufällig — auch wenn niemand in der Nähe.
     CreateThread(function()
         while true do
             Wait(1000)
@@ -623,9 +999,29 @@ local function StartCrimeDetectionThread()
             if IsPedArmed(cache.ped, 4) and not IsCrimeOnCooldown('BRANDISHING') then
                 local weapon = GetSelectedPedWeapon(cache.ped)
                 if weapon ~= GetHashKey('WEAPON_UNARMED') then
-                    local chance = crimeState.isPoliceNearby and 0.04 or 0.006
-                    if math.random() < chance then
-                        LogCrime('BRANDISHING')
+                    local realism = Config.CrimeRealism or {}
+                    local requireLOS = realism.brandishingRequiresLOS
+
+                    -- LOS-Check: gibt es einen NPC der mich gerade mit Waffe sieht?
+                    local seen = false
+                    if requireLOS then
+                        -- Cops in der Nähe?
+                        if crimeState.isPoliceNearby and CheckCopsLineOfSight() then
+                            seen = true
+                        else
+                            -- Mindestens 1 NPC in 20m mit Sichtlinie?
+                            local witnesses = GetNearbyWitnesses(cache.coords, 20.0)
+                            seen = #witnesses.npcs > 0
+                        end
+                    else
+                        seen = true
+                    end
+
+                    if seen then
+                        local chance = crimeState.isPoliceNearby and 0.04 or 0.006
+                        if math.random() < chance then
+                            LogCrime('BRANDISHING')
+                        end
                     end
                 end
             end
@@ -679,6 +1075,8 @@ local function StartCrimeDetectionThread()
     end)
 
     -- ── SPEEDING / RECKLESS DRIVING / HIT_AND_RUN ────────────────────────────
+    -- ✅ FIX #35 (1.0.2-alpha): SPEEDING braucht jetzt Cop-Sichtlinie.
+    -- Auch konfigurierbare Toleranz pro Area-Typ statt fixer "+20".
     CreateThread(function()
         local lastHitCheck = 0
 
@@ -695,20 +1093,35 @@ local function StartCrimeDetectionThread()
                          or area == 'SUBURBAN'    and 100
                          or 120
 
-            -- SPEEDING
-            if speed > (limit + 20) and not IsCrimeOnCooldown('SPEEDING') then
-                LogCrime('SPEEDING')
+            -- ✅ FIX #35: Konfigurierbare Toleranz pro Area-Typ
+            local realism = Config.CrimeRealism or {}
+            local tolByArea = realism.speedingTolerance or {}
+            local tolerance = tolByArea[area] or 30
+
+            -- ✅ FIX #35: Cop-LOS Check für SPEEDING (verkehrsdelikt → muss gesehen werden)
+            local copSees = false
+            if realism.speedingRequiresCopLOS then
+                copSees = CheckCopsLineOfSight() == true
             end
 
-            -- RECKLESS DRIVING (sehr hohe Geschwindigkeit + Schräglage)
-            if speed > (limit + 40) and not IsCrimeOnCooldown('RECKLESS_DRIVING') then
-                local roll = GetEntityRoll(cache.vehicle)
-                if math.abs(roll) > 20.0 then
-                    LogCrime('RECKLESS_DRIVING')
+            -- SPEEDING — erst wenn deutlich über limit UND ein Cop es sieht
+            if speed > (limit + tolerance) and not IsCrimeOnCooldown('SPEEDING') then
+                if (not realism.speedingRequiresCopLOS) or copSees then
+                    LogCrime('SPEEDING')
                 end
             end
 
-            -- HIT AND RUN
+            -- RECKLESS DRIVING — sehr hohe Geschwindigkeit + Schräglage
+            if speed > (limit + tolerance + 20) and not IsCrimeOnCooldown('RECKLESS_DRIVING') then
+                local roll = GetEntityRoll(cache.vehicle)
+                if math.abs(roll) > 20.0 then
+                    if (not realism.recklessRequiresWitness) or copSees or crimeState.isPoliceNearby then
+                        LogCrime('RECKLESS_DRIVING')
+                    end
+                end
+            end
+
+            -- HIT AND RUN — wenn ein NPC getroffen wurde
             local now = GetGameTimer()
             if now - lastHitCheck > 1500 and HasEntityCollidedWithAnything(cache.vehicle) then
                 lastHitCheck = now
@@ -723,7 +1136,8 @@ local function StartCrimeDetectionThread()
                             and not IsCrimeOnCooldown('HIT_AND_RUN')
                         then
                             if IsPedAPlayer(ped) or not IsPedDeadOrDying(ped, true) then
-                                LogCrime('HIT_AND_RUN')
+                                -- ✅ FIX #44: Überfahrener NPC als Opfer markieren
+                                LogCrime('HIT_AND_RUN', nil, false, ped)
                                 break
                             end
                         end
@@ -736,7 +1150,9 @@ local function StartCrimeDetectionThread()
     end)
 
     -- ── VEHICLE THEFT — Fahrzeugjacking ──────────────────────────────────────
-    -- (aus old system portiert)
+    -- ✅ FIX #44 (1.0.2-alpha hotfix3): Fahrer des Zielautos als Opfer übergeben
+    -- damit er nicht selber als Zeuge gepickt wird (führte zum "Witness eliminated"
+    -- Bug — Spieler jackt Fahrer raus, Fahrer ragdollt, "Zeuge eliminiert").
     CreateThread(function()
         while true do
             Wait(500)
@@ -745,7 +1161,19 @@ local function StartCrimeDetectionThread()
             if (IsPedTryingToEnterALockedVehicle(cache.ped) or IsPedJacking(cache.ped))
                 and not IsCrimeOnCooldown('VEHICLE_THEFT')
             then
-                LogCrime('VEHICLE_THEFT')
+                -- Opfer ermitteln: Fahrer des Fahrzeugs das gerade gejackt/aufgebrochen wird
+                local targetVeh = GetVehiclePedIsTryingToEnter(cache.ped)
+                if not targetVeh or targetVeh == 0 then
+                    targetVeh = GetVehiclePedIsEntering(cache.ped)
+                end
+                local victimDriver = nil
+                if targetVeh and targetVeh ~= 0 and DoesEntityExist(targetVeh) then
+                    local drv = GetPedInVehicleSeat(targetVeh, -1)
+                    if drv and drv ~= 0 and drv ~= cache.ped and DoesEntityExist(drv) then
+                        victimDriver = drv
+                    end
+                end
+                LogCrime('VEHICLE_THEFT', nil, false, victimDriver)
             end
 
             ::nextTheft::
@@ -762,10 +1190,11 @@ local function StartCrimeDetectionThread()
                 local target = GetMeleeTargetForPed(cache.ped)
                 if target ~= 0 and not IsPedDeadOrDying(target, true) then
                     if not IsCrimeOnCooldown('ASSAULT') then
+                        -- ✅ FIX #44: Nahkampf-Opfer rauswerfen aus Witness-Liste
                         if GetPedType(target) == 6 then
-                            LogCrime('ASSAULT_COP')
+                            LogCrime('ASSAULT_COP', nil, false, target)
                         else
-                            LogCrime('ASSAULT')
+                            LogCrime('ASSAULT', nil, false, target)
                         end
                     end
                 end

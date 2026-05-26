@@ -19,7 +19,17 @@ if not Config.Nostr or not Config.Nostr.enabled then
     return
 end
 
-local Locale   = lib.load('locales.' .. GetConvar('ox:locale', 'en'))
+-- ✅ FIX #37 (1.0.3-alpha): or {} Fallback + L() Wrapper für Konsistenz mit
+-- main.lua / crime.lua / crime_witness_handler.lua. Ohne or {} crasht jeder
+-- Locale.xxx:format() Call wenn lib.load nil zurückgibt (z.B. bei falscher
+-- ox:locale Convar oder fehlender Locale-Datei).
+local Locale = lib.load('locales.' .. GetConvar('ox:locale', 'en')) or {}
+local function L(key, ...)
+    local s = Locale[key]
+    if not s then return key end
+    if select('#', ...) > 0 then return s:format(...) end
+    return s
+end
 local resource = Config.Nostr.resource or 'rde_nostr_log'
 
 -- ============================================================================
@@ -97,7 +107,7 @@ if Config.Nostr.logLevel == nil or Config.Nostr.logLevel.player_connect ~= false
             Wait(1000) -- Let ox_core settle
             local _, identifier = GetPlayerInfo(source)
             NostrLog(
-                Locale.nostr_connect_event:format(name, identifier),
+                L('nostr_connect_event', name, identifier),
                 { { 'event', 'player_connect' }, { 'player', name }, { 'identifier', identifier } },
                 'player_connect'
             )
@@ -110,7 +120,7 @@ if Config.Nostr.logLevel == nil or Config.Nostr.logLevel.player_disconnect ~= fa
         local source = source
         local name, identifier = GetPlayerInfo(source)
         NostrLog(
-            Locale.nostr_disconnect_event:format(name, reason or 'unknown'),
+            L('nostr_disconnect_event', name, reason or 'unknown'),
             { { 'event', 'player_disconnect' }, { 'player', name }, { 'identifier', identifier }, { 'reason', reason or 'unknown' } },
             'player_disconnect'
         )
@@ -125,7 +135,7 @@ RegisterNetEvent('police:nostr:wantedSet', function(level, reason)
     local source = source
     local name, identifier = GetPlayerInfo(source)
     NostrLog(
-        Locale.nostr_wanted_event:format(name, level, reason or 'crime'),
+        L('nostr_wanted_event', name, level, reason or 'crime'),
         {
             { 'event',      'wanted_set'    },
             { 'player',     name            },
@@ -141,7 +151,7 @@ RegisterNetEvent('police:nostr:wantedCleared', function()
     local source = source
     local name, identifier = GetPlayerInfo(source)
     NostrLog(
-        Locale.nostr_wanted_cleared:format(name),
+        L('nostr_wanted_cleared', name),
         {
             { 'event',      'wanted_cleared' },
             { 'player',     name             },
@@ -159,7 +169,7 @@ RegisterNetEvent('police:nostr:arrested', function(wantedLevel)
     local source = source
     local name, identifier = GetPlayerInfo(source)
     NostrLog(
-        Locale.nostr_arrest_event:format(name, wantedLevel or 0),
+        L('nostr_arrest_event', name, wantedLevel or 0),
         {
             { 'event',      'player_arrested'            },
             { 'player',     name                         },
@@ -174,7 +184,7 @@ RegisterNetEvent('police:nostr:jailed', function(jailTime)
     local source = source
     local name, identifier = GetPlayerInfo(source)
     NostrLog(
-        Locale.nostr_jail_event:format(name, jailTime or 0),
+        L('nostr_jail_event', name, jailTime or 0),
         {
             { 'event',      'player_jailed'           },
             { 'player',     name                      },
@@ -189,7 +199,7 @@ RegisterNetEvent('police:nostr:released', function()
     local source = source
     local name, identifier = GetPlayerInfo(source)
     NostrLog(
-        Locale.nostr_release_event:format(name),
+        L('nostr_release_event', name),
         {
             { 'event',      'player_released' },
             { 'player',     name              },
@@ -207,7 +217,7 @@ RegisterNetEvent('police:nostr:surrendered', function()
     local source = source
     local name, identifier = GetPlayerInfo(source)
     NostrLog(
-        Locale.nostr_surrender_event:format(name),
+        L('nostr_surrender_event', name),
         {
             { 'event',      'player_surrendered' },
             { 'player',     name                 },
@@ -226,7 +236,7 @@ RegisterNetEvent('police:nostr:crime', function(crimeType, area, witnessed)
     local name, identifier = GetPlayerInfo(source)
     local crimeDesc = (Config.CrimeTypes[crimeType] and Config.CrimeTypes[crimeType].description) or crimeType
     NostrLog(
-        Locale.nostr_crime_event:format(name, crimeDesc, area or 'Unknown', witnessed and 'Yes' or 'No'),
+        L('nostr_crime_event', name, crimeDesc, area or 'Unknown', witnessed and 'Yes' or 'No'),
         {
             { 'event',      'crime_detected'          },
             { 'player',     name                      },
@@ -247,7 +257,7 @@ RegisterNetEvent('police:nostr:copKilled', function()
     local source = source
     local name, identifier = GetPlayerInfo(source)
     NostrLog(
-        Locale.nostr_cop_killed_event:format(name),
+        L('nostr_cop_killed_event', name),
         {
             { 'event',      'officer_down' },
             { 'player',     name           },
@@ -266,7 +276,7 @@ RegisterNetEvent('police:nostr:escaped', function(prevLevel)
     local source = source
     local name, identifier = GetPlayerInfo(source)
     NostrLog(
-        Locale.nostr_escape_event:format(name, prevLevel or 0),
+        L('nostr_escape_event', name, prevLevel or 0),
         {
             { 'event',      'player_escaped'           },
             { 'player',     name                       },
@@ -286,7 +296,7 @@ RegisterNetEvent('police:nostr:adminAction', function(action, targetName)
     local adminName, adminId = GetPlayerInfo(source)
     if not (Config.AdminSettings and Config.AdminSettings.allowAdminCommands) then return end
     NostrLog(
-        Locale.nostr_admin_action:format(adminName, action or 'unknown', targetName or 'N/A'),
+        L('nostr_admin_action', adminName, action or 'unknown', targetName or 'N/A'),
         {
             { 'event',  'admin_action'           },
             { 'admin',  adminName                },

@@ -7,6 +7,18 @@
 -- ✅ FIX #27 (1.0.1-alpha): Locale-Loading via ox_lib
 -- ✅ FIX #29 (1.0.1-alpha): Doppel-Notification entfernt — SetWantedLevel zeigt
 --                           bereits "Wanted Level: X ⭐" direkt danach.
+-- ✅ FIX #34 (1.0.3-alpha): Eigenes lokales Debug() — main.lua's Debug ist `local`
+--                           und nicht cross-file erreichbar (RDE OX Standard:
+--                           jede Datei hat ihr eigenes Logging).
+-- ✅ FIX #35 (1.0.3-alpha): Doppel-Insert in crimeHistory bei
+--                           police:crimeDetectedNoWitness entfernt — LogCrime()
+--                           macht das bereits.
+-- ✅ FIX #38 (1.0.4-alpha): Server-side CrimeReportCache als defense-in-depth
+--                           gegen Doppel-Trigger (analog zu NotificationCache aus
+--                           RDE OX Standards). Verhindert dass derselbe Crime
+--                           vom selben Player innerhalb von 2s zweimal in der DB
+--                           landet — egal ob Race, Spam-Command oder externes
+--                           Resource ihn doppelt feuert.
 -- ════════════════════════════════════════════════════════════════════════════════
 
 -- ════════════════════════════════════════════════════════════════════════════════
@@ -20,43 +32,79 @@ local function L(key, ...)
     return s
 end
 
+-- ════════════════════════════════════════════════════════════════════════════════
+-- LOCAL DEBUG (FIX #34)
+-- main.lua hat ein lokales Debug() das hier nicht erreichbar ist.
+-- RDE OX Standard: jede Datei bekommt ihr eigenes lokales Logging.
+-- ════════════════════════════════════════════════════════════════════════════════
+local function Debug(...)
+    if Config.Debug then
+        print('^3[AIPD | CrimeWitness]^7', ...)
+    end
+end
+
+-- ════════════════════════════════════════════════════════════════════════════════
+-- CRIME REPORT CACHE (FIX #38) — Server-side Dedup
+-- Analog zu NotificationCache aus den RDE OX Standards. 2s Window per Player+Crime.
+-- Schützt gegen:
+--   • Race conditions am Client (zwei Coroutines triggern denselben Crime im Frame)
+--   • Externe Resources die LogCrime-Export doppelt aufrufen
+--   • Spam von Test-Commands wie /testwitness
+-- Auto-cleanup beim playerDropped (ganz unten in dieser Datei).
+-- ════════════════════════════════════════════════════════════════════════════════
+local CrimeReportCache = {}
+local CRIME_DEDUP_WINDOW = 2000  -- ms
+
+local function IsCrimeRecentlyReported(source, crimeType)
+    local cache = CrimeReportCache[source]
+    if not cache or not cache[crimeType] then return false end
+    return (GetGameTimer() - cache[crimeType]) < CRIME_DEDUP_WINDOW
+end
+
+local function MarkCrimeReported(source, crimeType)
+    CrimeReportCache[source] = CrimeReportCache[source] or {}
+    CrimeReportCache[source][crimeType] = GetGameTimer()
+end
+
+AddEventHandler('playerDropped', function()
+    local src = source
+    if src and CrimeReportCache[src] then CrimeReportCache[src] = nil end
+end)
+
 -- NEW: Event for crimes detected but no witnesses
 RegisterNetEvent('police:crimeDetectedNoWitness', function(crimeType, coords)
     local source = source
     if not source or source == 0 then return end
-    
-    -- ✅ FIX #3: totalCrimes wird NICHT mehr hier inkrementiert
-    -- LogCrime() weiter unten macht das bereits — war vorher doppelt!
-    
-    local state = GetPlayerState(source)
-    
-    -- Store in crime history but mark as unwitnessed
-    table.insert(state.crimeHistory, 1, {
-        type = crimeType,
-        coords = coords,
-        timestamp = os.time(),
-        witnessed = false,
-        wantedBefore = state.level,
-        wantedAfter = state.level  -- No change
-    })
-    
-    -- Keep only last 50 crimes
-    if #state.crimeHistory > 50 then
-        table.remove(state.crimeHistory, 51)
+
+    -- ✅ FIX #38: Server-side Dedup (2s Window)
+    if IsCrimeRecentlyReported(source, crimeType) then
+        Debug(('🚫 Dedup: %s von Player %d innerhalb %dms — skipped'):format(
+            crimeType, source, CRIME_DEDUP_WINDOW))
+        return
     end
-    
-    -- Log to database (this also increments totalCrimes)
+    MarkCrimeReported(source, crimeType)
+
+    -- ✅ FIX #3:  totalCrimes wird NICHT mehr hier inkrementiert
+    -- ✅ FIX #35: table.insert in crimeHistory entfernt — LogCrime() macht das
+    --            bereits (main.lua:400). Vorher war der Eintrag doppelt.
+
+    -- Log to database — LogCrime kümmert sich um:
+    --   • state.crimes[crimeType] +1
+    --   • state.totalCrimes +1
+    --   • state.crimeHistory insert (mit data.witnessed=false)
+    --   • DB-Insert in crime_logs
+    --   • SyncPlayerState
     LogCrime(source, crimeType, {
-        coords = coords,
+        coords    = coords,
         witnessed = false,
         timestamp = os.time()
     })
-    
+
     -- Optionally notify admins
     if Config.Debug then
         local playerName = GetPlayerName(source) or 'Unknown'
         print(string.format('^3[Crime NoWitness]^7 %s committed %s at %s - NO WANTED LEVEL',
-            playerName, crimeType, coords))
+            playerName, crimeType, tostring(coords)))
     end
 end)
 
@@ -86,6 +134,18 @@ RegisterNetEvent('police:reportCrime', function(data)
         Debug(('Unknown crime type: %s'):format(tostring(crimeType)))
         return
     end
+
+    -- ✅ FIX #38: Server-side Dedup (2s Window)
+    -- Schützt den `witnessed=true` Pfad gegen Race/Spam — analog zum
+    -- crimeDetectedNoWitness Handler oben. Vorher konnte ein doppelt
+    -- gefeuertes Event (z.B. /testwitness Spam oder externes Resource)
+    -- den Crime zweimal in die DB schreiben.
+    if IsCrimeRecentlyReported(source, crimeType) then
+        Debug(('🚫 Dedup: %s von Player %d innerhalb %dms — skipped (witnessed path)'):format(
+            crimeType, source, CRIME_DEDUP_WINDOW))
+        return
+    end
+    MarkCrimeReported(source, crimeType)
 
     -- Check if this report came from a witness (new system)
     local hasWitness = witnessData and witnessData.callCompleted
@@ -142,7 +202,19 @@ RegisterNetEvent('police:reportCrime', function(data)
         
         -- Set wanted level
         SetWantedLevel(source, newLevel, crimeConfig.description or crimeType)
-        
+
+        -- ✅ FIX #33 (1.0.2-alpha): Co-Occupant Wanted Propagation
+        -- Beifahrer im selben Fahrzeug erben den Wanted Level (wie GTA Online).
+        -- Client hat die Server-IDs im witnessData.coOccupants Feld mitgeschickt.
+        if witnessData and witnessData.coOccupants and #witnessData.coOccupants > 0 then
+            PropagateWantedToCoOccupants(
+                source,
+                newLevel,
+                witnessData.coOccupants,
+                crimeConfig.description or crimeType
+            )
+        end
+
         -- ✅ FIX #29: Extra "Zeuge hat 911 angerufen" Notification entfernt.
         -- War redundant — SetWantedLevel() unten schickt bereits "Wanted Level: X ⭐".
         -- Vorher hatte der Spieler 3 Notifications pro Crime:
@@ -171,3 +243,4 @@ end)
 -- Print initialization message
 print('^2[AIPD | Server NextGen]^7 ✅ Witness-based crime reporting enabled')
 print('^2[AIPD | Server NextGen]^7 ✅ Crimes without witnesses are logged but don\'t give wanted level')
+print(('^2[AIPD | Server NextGen]^7 ✅ Server-side dedup active (window=%dms)'):format(CRIME_DEDUP_WINDOW))
